@@ -19,7 +19,7 @@ async function bootstrap() {
     allowedHeaders: 'Content-Type,Authorization'
   });
 
-  const port = process.env.PORT || 3004;
+  const port = process.env.PORT || 3002;
   await app.listen(port);
   logger.log(`🚀 Microservicio academico-calificaciones corriendo en puerto ${port}`);
 }
