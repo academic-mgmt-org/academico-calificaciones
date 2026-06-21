@@ -22,11 +22,31 @@ async function bootstrap() {
   app.useLogger(app.get(Logger));
   const logger = app.get(Logger);
 
+  // Cargar reflection dynamic import para ConnectRPC
+  let registerServerReflectionFromUint8Array = null;
+  try {
+    const reflectModule = await Function('return import("@lambdalisue/connectrpc-grpcreflect/server")')();
+    registerServerReflectionFromUint8Array = reflectModule.registerServerReflectionFromUint8Array;
+    logger.log('✅ ConnectRPC Reflection Service module loaded successfully');
+  } catch (error) {
+    logger.warn(`⚠️ ConnectRPC Reflection Service module could not be loaded: ${error.message}`);
+  }
+
   const fastifyInstance = app.getHttpAdapter().getInstance();
   await fastifyInstance.register(fastifyConnectPlugin, {
-    routes: connectRoutes,
+    routes: (router) => connectRoutes(router, app, registerServerReflectionFromUint8Array),
     interceptors: [
       (next) => async (req) => {
+        // Excluir servicios de reflection y health check del requerimiento de API Key
+        const serviceName = req.service?.typeName;
+        if (
+          serviceName === 'grpc.reflection.v1.ServerReflection' ||
+          serviceName === 'grpc.reflection.v1alpha.ServerReflection' ||
+          serviceName === 'grpc.health.v1.Health'
+        ) {
+          return await next(req);
+        }
+
         const apiKey = req.header.get('x-api-key');
         const expectedApiKey = process.env.CALIFICACIONES_API_KEY;
         if (!apiKey || apiKey !== expectedApiKey) {
