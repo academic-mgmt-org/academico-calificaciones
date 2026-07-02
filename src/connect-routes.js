@@ -23,8 +23,10 @@ export default (router, app, registerServerReflectionFromUint8Array) => {
       let descriptorBytes;
       try {
         descriptorBytes = readFileSync(join(__dirname, 'gen/descriptor.bin'));
-      } catch (e) {
-        descriptorBytes = readFileSync(join(__dirname, '../gen/descriptor.bin'));
+      } catch {
+        descriptorBytes = readFileSync(
+          join(__dirname, '../gen/descriptor.bin'),
+        );
       }
       registerServerReflectionFromUint8Array(router, descriptorBytes);
     } catch (error) {

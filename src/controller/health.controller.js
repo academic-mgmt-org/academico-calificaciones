@@ -8,7 +8,7 @@ export class HealthController {
       status: 'healthy',
       service: 'academico-calificaciones',
       timestamp: new Date().toISOString(),
-      uptime: process.uptime()
+      uptime: process.uptime(),
     };
   }
 
@@ -16,7 +16,7 @@ export class HealthController {
   ready() {
     return {
       ready: true,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   }
 
@@ -25,7 +25,7 @@ export class HealthController {
     return {
       alive: true,
       timestamp: new Date().toISOString(),
-      uptime: process.uptime()
+      uptime: process.uptime(),
     };
   }
 }

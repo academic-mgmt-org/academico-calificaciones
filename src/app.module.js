@@ -11,16 +11,16 @@ import { HealthController } from './controller/health.controller';
     LoggerModule.forRoot(pinoLoggerConfig),
     ConfigModule.forRoot({
       envFilePath: '.env',
-      isGlobal: true
-    })
+      isGlobal: true,
+    }),
   ],
   controllers: [HealthController],
   providers: [
     Logger,
     {
       provide: APP_FILTER,
-      useClass: HttpExceptionFilter
-    }
-  ]
+      useClass: HttpExceptionFilter,
+    },
+  ],
 })
 export class AppModule {}
