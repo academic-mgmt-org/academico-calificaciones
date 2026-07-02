@@ -1,0 +1,199 @@
+syntax = "proto3";
+
+package calificaciones.v1;
+
+message Empty {}
+
+message EvaluationComponent {
+  string id = 1;
+  string oferta_curso_id = 2;
+  string paralelo_id = 3;
+  string nombre = 4;
+  string descripcion = 5;
+  string tipo = 6;
+  double ponderacion = 7;
+  double puntaje_maximo = 8;
+  string fecha_entrega = 9;
+  string estado = 10;
+  string creado_en = 11;
+  string actualizado_en = 12;
+}
+
+message CreateEvaluationComponentRequest {
+  string oferta_curso_id = 1;
+  string paralelo_id = 2;
+  string nombre = 3;
+  string descripcion = 4;
+  string tipo = 5;
+  double ponderacion = 6;
+  double puntaje_maximo = 7;
+  string fecha_entrega = 8;
+}
+
+message UpdateEvaluationComponentRequest {
+  string id = 1;
+  optional string oferta_curso_id = 2;
+  optional string paralelo_id = 3;
+  optional string nombre = 4;
+  optional string descripcion = 5;
+  optional string tipo = 6;
+  optional double ponderacion = 7;
+  optional double puntaje_maximo = 8;
+  optional string fecha_entrega = 9;
+  optional string estado = 10;
+}
+
+message ComponentIdRequest {
+  string id = 1;
+}
+
+message ListEvaluationComponentsRequest {
+  string oferta_curso_id = 1;
+  string paralelo_id = 2;
+  string estado = 3;
+  int32 limit = 4;
+  int32 offset = 5;
+}
+
+message EvaluationComponentResponse {
+  EvaluationComponent component = 1;
+}
+
+message ListEvaluationComponentsResponse {
+  repeated EvaluationComponent components = 1;
+  int32 total = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+}
+
+message Grade {
+  string id = 1;
+  string matricula_id = 2;
+  string estudiante_id = 3;
+  string oferta_curso_id = 4;
+  string componente_id = 5;
+  string nombre_evaluacion = 6;
+  string tipo = 7;
+  double nota = 8;
+  double ponderacion = 9;
+  string observacion = 10;
+  string estado = 11;
+  bool publicada = 12;
+  string registrada_por = 13;
+  string fecha_registro = 14;
+  string creado_en = 15;
+  string actualizado_en = 16;
+}
+
+message RegisterGradeRequest {
+  string matricula_id = 1;
+  string estudiante_id = 2;
+  string componente_id = 3;
+  double nota = 4;
+  string observacion = 5;
+  string registrada_por = 6;
+  bool publicar = 7;
+}
+
+message UpdateGradeRequest {
+  string id = 1;
+  optional string componente_id = 2;
+  optional string estudiante_id = 3;
+  optional double nota = 4;
+  optional string observacion = 5;
+  optional string registrada_por = 6;
+  optional string estado = 7;
+  optional bool publicada = 8;
+}
+
+message GradeIdRequest {
+  string id = 1;
+}
+
+message ListGradesRequest {
+  string matricula_id = 1;
+  string estudiante_id = 2;
+  string oferta_curso_id = 3;
+  string estado = 4;
+  bool solo_publicadas = 5;
+  int32 limit = 6;
+  int32 offset = 7;
+}
+
+message GradeResponse {
+  Grade grade = 1;
+}
+
+message ListGradesResponse {
+  repeated Grade grades = 1;
+  int32 total = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+}
+
+message PublishGradesRequest {
+  string matricula_id = 1;
+  string publicada_por = 2;
+}
+
+message FinalGradeRequest {
+  string matricula_id = 1;
+}
+
+message FinalGrade {
+  string matricula_id = 1;
+  string estudiante_id = 2;
+  double nota_final = 3;
+  double ponderacion_total = 4;
+  string estado_academico = 5;
+  bool publicada = 6;
+  repeated Grade grades = 7;
+}
+
+message FinalGradeResponse {
+  FinalGrade final_grade = 1;
+}
+
+message GenericResponse {
+  bool success = 1;
+  string message = 2;
+  string affected_id = 3;
+  int32 affected = 4;
+}
+
+message HealthResponse {
+  string status = 1;
+  string service = 2;
+  string timestamp = 3;
+  double uptime = 4;
+}
+
+message ReadyResponse {
+  bool ready = 1;
+  string timestamp = 2;
+}
+
+message LiveResponse {
+  bool alive = 1;
+  string timestamp = 2;
+  double uptime = 3;
+}
+
+service GradingService {
+  rpc CreateEvaluationComponent(CreateEvaluationComponentRequest) returns (EvaluationComponentResponse) {}
+  rpc UpdateEvaluationComponent(UpdateEvaluationComponentRequest) returns (EvaluationComponentResponse) {}
+  rpc ListEvaluationComponents(ListEvaluationComponentsRequest) returns (ListEvaluationComponentsResponse) {}
+  rpc DisableEvaluationComponent(ComponentIdRequest) returns (GenericResponse) {}
+  rpc RegisterGrade(RegisterGradeRequest) returns (GradeResponse) {}
+  rpc UpdateGrade(UpdateGradeRequest) returns (GradeResponse) {}
+  rpc GetGrade(GradeIdRequest) returns (GradeResponse) {}
+  rpc ListGrades(ListGradesRequest) returns (ListGradesResponse) {}
+  rpc PublishGrades(PublishGradesRequest) returns (GenericResponse) {}
+  rpc GetFinalGrade(FinalGradeRequest) returns (FinalGradeResponse) {}
+}
+
+service HealthService {
+  rpc Health(Empty) returns (HealthResponse) {}
+  rpc Ready(Empty) returns (ReadyResponse) {}
+  rpc Live(Empty) returns (LiveResponse) {}
+}

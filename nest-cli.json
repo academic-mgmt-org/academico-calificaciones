@@ -3,7 +3,6 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
-    "deleteOutDir": true,
-    "assets": ["gen/descriptor.bin"]
+    "deleteOutDir": true
   }
 }

@@ -6,6 +6,7 @@ import { config } from 'dotenv';
 import { fastifyConnectPlugin } from '@connectrpc/connect-fastify';
 import { ConnectError, Code } from '@connectrpc/connect';
 import connectRoutes from './connect-routes';
+import * as path from 'path';
 config();
 
 async function bootstrap() {
@@ -22,33 +23,38 @@ async function bootstrap() {
   app.useLogger(app.get(Logger));
   const logger = app.get(Logger);
 
-  // Cargar reflection dynamic import para ConnectRPC
-  let registerServerReflectionFromUint8Array = null;
+  let registerServerReflectionFromFile = null;
   try {
     const reflectModule = await Function(
       'return import("@lambdalisue/connectrpc-grpcreflect/server")',
     )();
-    registerServerReflectionFromUint8Array =
-      reflectModule.registerServerReflectionFromUint8Array;
-    logger.log('✅ ConnectRPC Reflection Service module loaded successfully');
+    registerServerReflectionFromFile =
+      reflectModule.registerServerReflectionFromFile;
+    logger.log('ConnectRPC Reflection Service module loaded successfully');
   } catch (error) {
     logger.warn(
-      `⚠️ ConnectRPC Reflection Service module could not be loaded: ${error.message}`,
+      `ConnectRPC Reflection Service module could not be loaded: ${error.message}`,
     );
   }
 
   const fastifyInstance = app.getHttpAdapter().getInstance();
   await fastifyInstance.register(fastifyConnectPlugin, {
-    routes: (router) =>
-      connectRoutes(router, app, registerServerReflectionFromUint8Array),
+    routes: (router) => {
+      if (registerServerReflectionFromFile) {
+        registerServerReflectionFromFile(
+          router,
+          path.join(process.cwd(), 'schema.bin'),
+        );
+      }
+      connectRoutes(router, app);
+    },
     interceptors: [
       (next) => async (req) => {
-        // Excluir servicios de reflection y health check del requerimiento de API Key
         const serviceName = req.service?.typeName;
         if (
+          serviceName === 'calificaciones.v1.HealthService' ||
           serviceName === 'grpc.reflection.v1.ServerReflection' ||
-          serviceName === 'grpc.reflection.v1alpha.ServerReflection' ||
-          serviceName === 'grpc.health.v1.Health'
+          serviceName === 'grpc.reflection.v1alpha.ServerReflection'
         ) {
           return await next(req);
         }
@@ -66,16 +72,10 @@ async function bootstrap() {
     ],
   });
 
-  app.enableCors({
-    credentials: true,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    allowedHeaders: 'Content-Type,Authorization',
-  });
-
   const port = process.env.PORT || 3002;
   await app.listen(port, '0.0.0.0');
   logger.log(
-    `🚀 Microservicio academico-calificaciones corriendo en puerto ${port} (HTTP/2 Fastify habilitado)`,
+    `Microservicio academico-calificaciones corriendo en puerto ${port} (HTTP/2 Fastify habilitado)`,
   );
 }
 bootstrap();
