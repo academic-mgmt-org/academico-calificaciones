@@ -25,7 +25,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.{ts,js}\" --fix --no-error-on-unmatched-pattern",
-    "test": "node --test"
+    "test": "npm run build && node --test"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.12.0",

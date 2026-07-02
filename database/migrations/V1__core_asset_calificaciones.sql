@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS academico.componentes_calificacion (
     descripcion TEXT,
     tipo VARCHAR(50) NOT NULL DEFAULT 'otro',
     ponderacion NUMERIC(5,2) NOT NULL,
-    puntaje_maximo NUMERIC(5,2) NOT NULL DEFAULT 100,
+    puntaje_maximo NUMERIC(5,2) NOT NULL DEFAULT 10,
     fecha_entrega DATE,
     estado VARCHAR(20) NOT NULL DEFAULT 'activo',
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS academico.componentes_calificacion (
     CONSTRAINT chk_componentes_calificacion_ponderacion
         CHECK (ponderacion > 0 AND ponderacion <= 100),
     CONSTRAINT chk_componentes_calificacion_puntaje_maximo
-        CHECK (puntaje_maximo > 0 AND puntaje_maximo <= 100),
+        CHECK (puntaje_maximo > 0 AND puntaje_maximo <= 10),
     CONSTRAINT chk_componentes_calificacion_estado
         CHECK (estado IN ('activo', 'inactivo'))
 );
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS academico.calificaciones (
     CONSTRAINT chk_calificaciones_tipo
         CHECK (tipo IN ('tarea', 'leccion', 'examen', 'proyecto', 'participacion', 'otro')),
     CONSTRAINT chk_calificaciones_nota
-        CHECK (nota BETWEEN 0 AND 100),
+        CHECK (nota BETWEEN 0 AND 10),
     CONSTRAINT chk_calificaciones_ponderacion
         CHECK (ponderacion > 0 AND ponderacion <= 100),
     CONSTRAINT chk_calificaciones_estado

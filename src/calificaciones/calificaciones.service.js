@@ -41,7 +41,7 @@ export class CalificacionesService {
         descripcion TEXT,
         tipo VARCHAR(50) NOT NULL DEFAULT 'otro',
         ponderacion NUMERIC(5,2) NOT NULL,
-        puntaje_maximo NUMERIC(5,2) NOT NULL DEFAULT 100,
+        puntaje_maximo NUMERIC(5,2) NOT NULL DEFAULT 10,
         fecha_entrega DATE,
         estado VARCHAR(20) NOT NULL DEFAULT 'activo',
         creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -51,7 +51,7 @@ export class CalificacionesService {
         CONSTRAINT chk_componentes_calificacion_ponderacion
           CHECK (ponderacion > 0 AND ponderacion <= 100),
         CONSTRAINT chk_componentes_calificacion_puntaje_maximo
-          CHECK (puntaje_maximo > 0 AND puntaje_maximo <= 100),
+          CHECK (puntaje_maximo > 0 AND puntaje_maximo <= 10),
         CONSTRAINT chk_componentes_calificacion_estado
           CHECK (estado IN ('activo', 'inactivo'))
       );
@@ -79,7 +79,7 @@ export class CalificacionesService {
         CONSTRAINT chk_calificaciones_tipo
           CHECK (tipo IN ('tarea', 'leccion', 'examen', 'proyecto', 'participacion', 'otro')),
         CONSTRAINT chk_calificaciones_nota
-          CHECK (nota BETWEEN 0 AND 100),
+          CHECK (nota BETWEEN 0 AND 10),
         CONSTRAINT chk_calificaciones_ponderacion
           CHECK (ponderacion > 0 AND ponderacion <= 100),
         CONSTRAINT chk_calificaciones_estado
@@ -109,6 +109,43 @@ export class CalificacionesService {
         ON academico.calificaciones(oferta_curso_id);
       CREATE INDEX IF NOT EXISTS idx_calificaciones_publicada
         ON academico.calificaciones(publicada);
+
+      UPDATE academico.calificaciones
+      SET nota = ROUND((nota / 10)::numeric, 2)
+      WHERE nota > 10 AND nota <= 100;
+
+      UPDATE academico.componentes_calificacion
+      SET puntaje_maximo = 10
+      WHERE puntaje_maximo > 10;
+
+      ALTER TABLE academico.componentes_calificacion
+        ALTER COLUMN puntaje_maximo SET DEFAULT 10;
+
+      ALTER TABLE academico.calificaciones
+        DROP CONSTRAINT IF EXISTS chk_calificaciones_nota;
+      ALTER TABLE academico.calificaciones
+        ADD CONSTRAINT chk_calificaciones_nota CHECK (nota BETWEEN 0 AND 10);
+
+      ALTER TABLE academico.componentes_calificacion
+        DROP CONSTRAINT IF EXISTS chk_componentes_calificacion_puntaje_maximo;
+      ALTER TABLE academico.componentes_calificacion
+        ADD CONSTRAINT chk_componentes_calificacion_puntaje_maximo
+          CHECK (puntaje_maximo > 0 AND puntaje_maximo <= 10);
+
+      DO $$
+      BEGIN
+        IF to_regclass('academico.matriculas') IS NOT NULL THEN
+          UPDATE academico.matriculas
+          SET nota_final = ROUND((nota_final / 10)::numeric, 2)
+          WHERE nota_final > 10 AND nota_final <= 100;
+
+          ALTER TABLE academico.matriculas
+            DROP CONSTRAINT IF EXISTS chk_matriculas_nota_final;
+          ALTER TABLE academico.matriculas
+            ADD CONSTRAINT chk_matriculas_nota_final
+              CHECK (nota_final IS NULL OR (nota_final >= 0 AND nota_final <= 10));
+        END IF;
+      END $$;
     `);
   }
 
@@ -719,7 +756,7 @@ export class CalificacionesService {
           grades.length;
     const notaFinal = Number(rawFinal.toFixed(2));
     const minimumPassingGrade = Number(
-      process.env.CALIFICACIONES_NOTA_APROBACION || '70',
+      process.env.CALIFICACIONES_NOTA_APROBACION || '7',
     );
 
     return {

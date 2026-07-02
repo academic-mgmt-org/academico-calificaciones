@@ -260,8 +260,8 @@ export class CreateEvaluationComponentRequestDto {
         normalizeOptionalPercentage(
           pickFirst(value, ['puntajeMaximo', 'puntaje_maximo', 'maxScore']),
           'Puntaje maximo invalido',
-          { min: 0.01 },
-        ) ?? 100,
+          { min: 0.01, max: 10 },
+        ) ?? 10,
       fechaEntrega: normalizeOptionalDate(
         pickFirst(value, ['fechaEntrega', 'fecha_entrega', 'dueDate']),
       ),
@@ -305,7 +305,7 @@ export class UpdateEvaluationComponentRequestDto {
       puntajeMaximo: normalizeOptionalPercentage(
         pickFirst(value, ['puntajeMaximo', 'puntaje_maximo', 'maxScore']),
         'Puntaje maximo invalido',
-        { min: 0.01 },
+        { min: 0.01, max: 10 },
       ),
       fechaEntrega: normalizeOptionalDate(
         pickFirst(value, ['fechaEntrega', 'fecha_entrega', 'dueDate']),
@@ -366,6 +366,7 @@ export class RegisterGradeRequestDto {
       nota: normalizePercentage(
         pickFirst(value, ['nota', 'score']),
         'Nota invalida',
+        { max: 10 },
       ),
       observacion: normalizeOptionalString(
         pickFirst(value, ['observacion', 'feedback']),
@@ -405,6 +406,7 @@ export class UpdateGradeRequestDto {
       nota: normalizeOptionalPercentage(
         pickFirst(value, ['nota', 'score']),
         'Nota invalida',
+        { max: 10 },
       ),
       observacion: normalizeOptionalString(
         pickFirst(value, ['observacion', 'feedback']),

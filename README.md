@@ -283,7 +283,7 @@ inactivo
 
 ## RN-001
 
-La nota debe estar entre 0 y 100.
+La nota debe estar entre 0 y 10.
 
 ---
 
@@ -428,7 +428,7 @@ El servicio registra eventos de dominio para integraci√≥n posterior con auditor√
 {
   "event":"GRADES_PUBLISHED",
   "entityId":"100",
-  "notaFinal":87.5
+  "notaFinal":8.75
 }
 ```
 
