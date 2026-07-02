@@ -1,0 +1,11 @@
+services:
+  academico-calificaciones:
+    image: ${ACADEMICO_CALIFICACIONES_IMAGE}
+    container_name: academico-calificaciones
+    restart: always
+    ports:
+      - "${PORT}:${PORT}"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
