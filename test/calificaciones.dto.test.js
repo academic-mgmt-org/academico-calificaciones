@@ -8,16 +8,17 @@ const {
 
 test('registra notas en escala de 0 a 10', () => {
   const request = RegisterGradeRequestDto.from({
-    matricula_id: '1',
+    matricula_codigo: 'MAT-001',
     componente_id: '1',
     nota: 10,
   });
 
+  assert.equal(request.matriculaCodigo, 'MAT-001');
   assert.equal(request.nota, 10);
   assert.throws(
     () =>
       RegisterGradeRequestDto.from({
-        matricula_id: '1',
+        matricula_codigo: 'MAT-001',
         componente_id: '1',
         nota: 10.01,
       }),

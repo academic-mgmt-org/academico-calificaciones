@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS academico.componentes_calificacion (
 
 CREATE TABLE IF NOT EXISTS academico.calificaciones (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    matricula_id BIGINT NOT NULL,
+    matricula_codigo VARCHAR(40) NOT NULL,
     estudiante_id BIGINT,
     oferta_curso_id BIGINT,
     componente_id BIGINT NOT NULL
@@ -62,16 +62,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_componentes_calificacion_contexto_nombre
         LOWER(nombre)
     );
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_calificaciones_matricula_componente_activa
-    ON academico.calificaciones (matricula_id, componente_id)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_calificaciones_matricula_codigo_componente_activa
+    ON academico.calificaciones (matricula_codigo, componente_id)
     WHERE estado <> 'anulada';
 
 CREATE INDEX IF NOT EXISTS idx_componentes_calificacion_oferta
     ON academico.componentes_calificacion(oferta_curso_id);
 CREATE INDEX IF NOT EXISTS idx_componentes_calificacion_paralelo
     ON academico.componentes_calificacion(paralelo_id);
-CREATE INDEX IF NOT EXISTS idx_calificaciones_matricula
-    ON academico.calificaciones(matricula_id);
+CREATE INDEX IF NOT EXISTS idx_calificaciones_matricula_codigo
+    ON academico.calificaciones(matricula_codigo);
 CREATE INDEX IF NOT EXISTS idx_calificaciones_estudiante
     ON academico.calificaciones(estudiante_id);
 CREATE INDEX IF NOT EXISTS idx_calificaciones_oferta

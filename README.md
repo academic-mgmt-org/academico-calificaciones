@@ -227,7 +227,7 @@ CREATE TABLE academico.calificaciones (
 
  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 
- matricula_id BIGINT NOT NULL,
+ matricula_codigo VARCHAR(40) NOT NULL,
 
  estudiante_id BIGINT,
 
@@ -364,7 +364,7 @@ service GradingService {
 ```protobuf
 message RegisterGradeRequest {
 
- string matricula_id = 1;
+ string matricula_codigo = 1;
 
  string estudiante_id = 2;
 
@@ -416,7 +416,7 @@ El servicio registra eventos de dominio para integración posterior con auditor�
 {
   "event":"GRADE_REGISTERED",
   "entityId":"25",
-  "matriculaId":"100"
+  "matriculaCodigo":"MAT-100"
 }
 ```
 
@@ -451,7 +451,7 @@ Contrato gRPC calificaciones.v1.GradingService
 Consume/Sincroniza:
 
 ```text
-matricula_id
+matricula_codigo
 estudiante_id
 oferta_curso_id
 nota_final
@@ -508,7 +508,7 @@ Resultado académico
 {
  "service":"academico-calificaciones",
  "operation":"REGISTER_GRADE",
- "matriculaId":"100"
+ "matriculaCodigo":"MAT-100"
 }
 ```
 

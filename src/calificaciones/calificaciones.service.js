@@ -58,7 +58,7 @@ export class CalificacionesService {
 
       CREATE TABLE IF NOT EXISTS academico.calificaciones (
         id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        matricula_id BIGINT NOT NULL,
+        matricula_codigo VARCHAR(40) NOT NULL,
         estudiante_id BIGINT,
         oferta_curso_id BIGINT,
         componente_id BIGINT NOT NULL
@@ -86,6 +86,42 @@ export class CalificacionesService {
           CHECK (estado IN ('borrador', 'publicada', 'anulada'))
       );
 
+      DROP INDEX IF EXISTS academico.uq_calificaciones_matricula_componente_activa;
+      DROP INDEX IF EXISTS academico.idx_calificaciones_matricula;
+      DROP INDEX IF EXISTS academico.idx_calificaciones_matricula_id;
+
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'academico'
+            AND table_name = 'calificaciones'
+            AND column_name = 'matricula_id'
+        ) THEN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'academico'
+              AND table_name = 'calificaciones'
+              AND column_name = 'matricula_codigo'
+          ) THEN
+            ALTER TABLE academico.calificaciones
+              ADD COLUMN matricula_codigo VARCHAR(40);
+          END IF;
+
+          UPDATE academico.calificaciones
+          SET matricula_codigo = matricula_id::text
+          WHERE matricula_codigo IS NULL;
+
+          ALTER TABLE academico.calificaciones
+            ALTER COLUMN matricula_codigo SET NOT NULL;
+
+          ALTER TABLE academico.calificaciones
+            DROP COLUMN matricula_id;
+        END IF;
+      END $$;
+
       CREATE UNIQUE INDEX IF NOT EXISTS uq_componentes_calificacion_contexto_nombre
         ON academico.componentes_calificacion (
           COALESCE(oferta_curso_id, -1),
@@ -93,16 +129,16 @@ export class CalificacionesService {
           LOWER(nombre)
         );
 
-      CREATE UNIQUE INDEX IF NOT EXISTS uq_calificaciones_matricula_componente_activa
-        ON academico.calificaciones (matricula_id, componente_id)
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_calificaciones_matricula_codigo_componente_activa
+        ON academico.calificaciones (matricula_codigo, componente_id)
         WHERE estado <> 'anulada';
 
       CREATE INDEX IF NOT EXISTS idx_componentes_calificacion_oferta
         ON academico.componentes_calificacion(oferta_curso_id);
       CREATE INDEX IF NOT EXISTS idx_componentes_calificacion_paralelo
         ON academico.componentes_calificacion(paralelo_id);
-      CREATE INDEX IF NOT EXISTS idx_calificaciones_matricula
-        ON academico.calificaciones(matricula_id);
+      CREATE INDEX IF NOT EXISTS idx_calificaciones_matricula_codigo
+        ON academico.calificaciones(matricula_codigo);
       CREATE INDEX IF NOT EXISTS idx_calificaciones_estudiante
         ON academico.calificaciones(estudiante_id);
       CREATE INDEX IF NOT EXISTS idx_calificaciones_oferta
@@ -112,7 +148,6 @@ export class CalificacionesService {
 
       ALTER TABLE academico.calificaciones
         DROP CONSTRAINT IF EXISTS uq_calificacion_matricula_evaluacion;
-      DROP INDEX IF EXISTS academico.idx_calificaciones_matricula_id;
 
       ALTER TABLE academico.calificaciones
         DROP CONSTRAINT IF EXISTS chk_calificaciones_ponderacion;
@@ -345,7 +380,7 @@ export class CalificacionesService {
       );
       const enrollment = await this.resolveEnrollment(
         client,
-        request.matriculaId,
+        request.matriculaCodigo,
       );
       const estudianteId = request.estudianteId || enrollment.estudianteId;
       const ofertaCursoId = component.ofertaCursoId || enrollment.ofertaCursoId;
@@ -354,7 +389,7 @@ export class CalificacionesService {
       const { rows } = await client.query(
         `
         INSERT INTO academico.calificaciones (
-          matricula_id,
+          matricula_codigo,
           estudiante_id,
           oferta_curso_id,
           componente_id,
@@ -371,7 +406,7 @@ export class CalificacionesService {
         RETURNING id
         `,
         [
-          request.matriculaId,
+          request.matriculaCodigo,
           estudianteId || null,
           ofertaCursoId || null,
           component.id,
@@ -388,7 +423,7 @@ export class CalificacionesService {
 
       gradeId = rows[0].id;
       this.logDomainEvent('GRADE_REGISTERED', gradeId, {
-        matriculaId: request.matriculaId,
+        matriculaCodigo: request.matriculaCodigo,
         componenteId: component.id,
         publicada: request.publicar,
       });
@@ -396,7 +431,7 @@ export class CalificacionesService {
       if (request.publicar) {
         const finalGrade = await this.calculateFinalGrade(
           client,
-          request.matriculaId,
+          request.matriculaCodigo,
         );
         await this.syncEnrollmentFinalGrade(client, finalGrade);
       }
@@ -472,7 +507,7 @@ export class CalificacionesService {
 
         const finalGrade = await this.calculateFinalGrade(
           client,
-          current.matriculaId,
+          current.matriculaCodigo,
         );
         await this.syncEnrollmentFinalGrade(client, finalGrade);
         this.logDomainEvent('GRADE_UPDATED', request.id, {
@@ -518,9 +553,9 @@ export class CalificacionesService {
     const values = [];
     const where = [];
 
-    if (request.matriculaId) {
-      values.push(request.matriculaId);
-      where.push(`matricula_id = $${values.length}`);
+    if (request.matriculaCodigo) {
+      values.push(request.matriculaCodigo);
+      where.push(`matricula_codigo = $${values.length}`);
     }
 
     if (request.estudianteId) {
@@ -552,7 +587,7 @@ export class CalificacionesService {
         SELECT *
         FROM academico.calificaciones
         ${whereClause}
-        ORDER BY matricula_id ASC, fecha_registro DESC, id DESC
+        ORDER BY matricula_codigo ASC, fecha_registro DESC, id DESC
         LIMIT $${values.length - 1}
         OFFSET $${values.length}
         `,
@@ -591,10 +626,10 @@ export class CalificacionesService {
             estado = 'publicada',
             registrada_por = COALESCE($2, registrada_por),
             actualizado_en = NOW()
-        WHERE matricula_id = $1
+        WHERE matricula_codigo = $1
           AND estado <> 'anulada'
         `,
-        [request.matriculaId, request.publicadaPor || null],
+        [request.matriculaCodigo, request.publicadaPor || null],
       );
       affected = result.rowCount;
 
@@ -604,11 +639,14 @@ export class CalificacionesService {
         );
       }
 
-      finalGrade = await this.calculateFinalGrade(client, request.matriculaId);
+      finalGrade = await this.calculateFinalGrade(
+        client,
+        request.matriculaCodigo,
+      );
       await this.syncEnrollmentFinalGrade(client, finalGrade);
       await client.query('COMMIT');
 
-      this.logDomainEvent('GRADES_PUBLISHED', request.matriculaId, {
+      this.logDomainEvent('GRADES_PUBLISHED', request.matriculaCodigo, {
         affected,
         notaFinal: finalGrade.notaFinal,
       });
@@ -624,14 +662,14 @@ export class CalificacionesService {
       message: `Calificaciones publicadas. Nota final: ${finalGrade.notaFinal.toFixed(
         2,
       )}`,
-      affectedId: request.matriculaId,
+      affectedId: request.matriculaCodigo,
       affected,
     };
   }
 
   async getFinalGrade(payload = {}) {
     const request = FinalGradeRequestDto.from(payload);
-    return this.calculateFinalGrade(this.pool, request.matriculaId);
+    return this.calculateFinalGrade(this.pool, request.matriculaCodigo);
   }
 
   addUpdate(updates, values, column, value) {
@@ -684,7 +722,7 @@ export class CalificacionesService {
     return this.mapGradeRow(rows[0]);
   }
 
-  async resolveEnrollment(client, matriculaId) {
+  async resolveEnrollment(client, matriculaCodigo) {
     for (const schemaName of ['academico', 'public']) {
       const exists = await this.tableExists(client, schemaName, 'matriculas');
       if (!exists) {
@@ -694,7 +732,7 @@ export class CalificacionesService {
         client,
         schemaName,
         'matriculas',
-        ['id', 'estudiante_id', 'oferta_curso_id'],
+        ['codigo', 'estudiante_id', 'oferta_curso_id'],
       );
       if (!compatible) {
         continue;
@@ -706,10 +744,10 @@ export class CalificacionesService {
           estudiante_id::text AS estudiante_id,
           oferta_curso_id::text AS oferta_curso_id
         FROM ${schemaName}.matriculas
-        WHERE id = $1
+        WHERE codigo = $1
         LIMIT 1
         `,
-        [matriculaId],
+        [matriculaCodigo],
       );
 
       if (!rows.length) {
@@ -725,21 +763,21 @@ export class CalificacionesService {
     return {};
   }
 
-  async calculateFinalGrade(client, matriculaId) {
+  async calculateFinalGrade(client, matriculaCodigo) {
     const { rows } = await client.query(
       `
       SELECT *
       FROM academico.calificaciones
-      WHERE matricula_id = $1
+      WHERE matricula_codigo = $1
         AND estado <> 'anulada'
       ORDER BY fecha_registro ASC, id ASC
       `,
-      [matriculaId],
+      [matriculaCodigo],
     );
 
     if (!rows.length) {
       return {
-        matriculaId: String(matriculaId),
+        matriculaCodigo: String(matriculaCodigo),
         estudianteId: '',
         notaFinal: 0,
         ponderacionTotal: 0,
@@ -770,7 +808,7 @@ export class CalificacionesService {
     );
 
     return {
-      matriculaId: String(matriculaId),
+      matriculaCodigo: String(matriculaCodigo),
       estudianteId:
         grades.find((grade) => grade.estudianteId)?.estudianteId || '',
       notaFinal,
@@ -796,7 +834,7 @@ export class CalificacionesService {
         client,
         schemaName,
         'matriculas',
-        ['id', 'nota_final', 'estado', 'actualizado_en'],
+        ['codigo', 'nota_final', 'estado', 'actualizado_en'],
       );
       if (!compatible) {
         continue;
@@ -812,12 +850,12 @@ export class CalificacionesService {
                 ELSE estado
               END,
               actualizado_en = NOW()
-          WHERE id = $3
+          WHERE codigo = $3
           `,
         [
           finalGrade.notaFinal,
           finalGrade.estadoAcademico,
-          finalGrade.matriculaId,
+          finalGrade.matriculaCodigo,
         ],
       );
     }
@@ -865,7 +903,7 @@ export class CalificacionesService {
   mapGradeRow(row) {
     return {
       id: row.id ? String(row.id) : '',
-      matriculaId: row.matricula_id ? String(row.matricula_id) : '',
+      matriculaCodigo: row.matricula_codigo ? String(row.matricula_codigo) : '',
       estudianteId: row.estudiante_id ? String(row.estudiante_id) : '',
       ofertaCursoId: row.oferta_curso_id ? String(row.oferta_curso_id) : '',
       componenteId: row.componente_id ? String(row.componente_id) : '',

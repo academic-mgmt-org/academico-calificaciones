@@ -68,7 +68,7 @@ message ListEvaluationComponentsResponse {
 
 message Grade {
   string id = 1;
-  string matricula_id = 2;
+  string matricula_codigo = 2;
   string estudiante_id = 3;
   string oferta_curso_id = 4;
   string componente_id = 5;
@@ -86,7 +86,7 @@ message Grade {
 }
 
 message RegisterGradeRequest {
-  string matricula_id = 1;
+  string matricula_codigo = 1;
   string estudiante_id = 2;
   string componente_id = 3;
   double nota = 4;
@@ -111,7 +111,7 @@ message GradeIdRequest {
 }
 
 message ListGradesRequest {
-  string matricula_id = 1;
+  string matricula_codigo = 1;
   string estudiante_id = 2;
   string oferta_curso_id = 3;
   string estado = 4;
@@ -132,16 +132,16 @@ message ListGradesResponse {
 }
 
 message PublishGradesRequest {
-  string matricula_id = 1;
+  string matricula_codigo = 1;
   string publicada_por = 2;
 }
 
 message FinalGradeRequest {
-  string matricula_id = 1;
+  string matricula_codigo = 1;
 }
 
 message FinalGrade {
-  string matricula_id = 1;
+  string matricula_codigo = 1;
   string estudiante_id = 2;
   double nota_final = 3;
   double ponderacion_total = 4;

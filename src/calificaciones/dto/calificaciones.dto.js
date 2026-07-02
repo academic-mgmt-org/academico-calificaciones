@@ -351,8 +351,13 @@ export class RegisterGradeRequestDto {
     }
 
     return new RegisterGradeRequestDto({
-      matriculaId: normalizeNumericId(
-        pickFirst(value, ['matriculaId', 'matricula_id']),
+      matriculaCodigo: normalizeRequiredString(
+        pickFirst(value, [
+          'matriculaCodigo',
+          'matricula_codigo',
+          'matriculaId',
+          'matricula_id',
+        ]),
         'Matricula invalida',
       ),
       estudianteId: normalizeOptionalNumericId(
@@ -434,9 +439,13 @@ export class ListGradesRequestDto {
     }
 
     return new ListGradesRequestDto({
-      matriculaId: normalizeOptionalNumericId(
-        pickFirst(value, ['matriculaId', 'matricula_id']),
-        'Matricula invalida',
+      matriculaCodigo: normalizeOptionalString(
+        pickFirst(value, [
+          'matriculaCodigo',
+          'matricula_codigo',
+          'matriculaId',
+          'matricula_id',
+        ]),
       ),
       estudianteId: normalizeOptionalNumericId(
         pickFirst(value, ['estudianteId', 'estudiante_id']),
@@ -467,8 +476,13 @@ export class PublishGradesRequestDto {
     }
 
     return new PublishGradesRequestDto({
-      matriculaId: normalizeNumericId(
-        pickFirst(value, ['matriculaId', 'matricula_id']),
+      matriculaCodigo: normalizeRequiredString(
+        pickFirst(value, [
+          'matriculaCodigo',
+          'matricula_codigo',
+          'matriculaId',
+          'matricula_id',
+        ]),
         'Matricula invalida',
       ),
       publicadaPor: normalizeOptionalNumericId(
@@ -490,8 +504,13 @@ export class FinalGradeRequestDto {
     }
 
     return new FinalGradeRequestDto({
-      matriculaId: normalizeNumericId(
-        pickFirst(value, ['matriculaId', 'matricula_id']),
+      matriculaCodigo: normalizeRequiredString(
+        pickFirst(value, [
+          'matriculaCodigo',
+          'matricula_codigo',
+          'matriculaId',
+          'matricula_id',
+        ]),
         'Matricula invalida',
       ),
     });
