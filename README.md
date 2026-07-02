@@ -227,6 +227,8 @@ CREATE TABLE academico.calificaciones (
 
  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 
+ matricula_asignatura_codigo VARCHAR(200) NOT NULL,
+
  matricula_codigo VARCHAR(40) NOT NULL,
 
  estudiante_id BIGINT,
@@ -378,6 +380,8 @@ message RegisterGradeRequest {
 
  bool publicar = 7;
 
+ string matricula_asignatura_codigo = 8;
+
 }
 ```
 
@@ -416,7 +420,7 @@ El servicio registra eventos de dominio para integración posterior con auditor�
 {
   "event":"GRADE_REGISTERED",
   "entityId":"25",
-  "matriculaCodigo":"MAT-100"
+  "matriculaAsignaturaCodigo":"MAT-100:2026A:SW-101:A:DOC-1"
 }
 ```
 
@@ -452,9 +456,12 @@ Consume/Sincroniza:
 
 ```text
 matricula_codigo
+matricula_asignatura_codigo
+ciclo_acad_codigo
+materia_codigo
 estudiante_id
 oferta_curso_id
-nota_final
+nota_final por materia
 estado académico
 ```
 
@@ -508,7 +515,7 @@ Resultado académico
 {
  "service":"academico-calificaciones",
  "operation":"REGISTER_GRADE",
- "matriculaCodigo":"MAT-100"
+ "matriculaAsignaturaCodigo":"MAT-100:2026A:SW-101:A:DOC-1"
 }
 ```
 

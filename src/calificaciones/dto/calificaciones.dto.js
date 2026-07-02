@@ -15,6 +15,12 @@ export const GRADE_STATUSES = Object.freeze([
   'publicada',
   'anulada',
 ]);
+export const SUBJECT_ENROLLMENT_STATUSES = Object.freeze([
+  'activa',
+  'aprobada',
+  'reprobada',
+  'anulada',
+]);
 
 const TYPE_ALIASES = Object.freeze({
   assignment: 'tarea',
@@ -37,6 +43,16 @@ const GRADE_STATUS_ALIASES = Object.freeze({
   draft: 'borrador',
   published: 'publicada',
   publish: 'publicada',
+  canceled: 'anulada',
+  cancelled: 'anulada',
+});
+
+const SUBJECT_ENROLLMENT_STATUS_ALIASES = Object.freeze({
+  active: 'activa',
+  enabled: 'activa',
+  approved: 'aprobada',
+  failed: 'reprobada',
+  rejected: 'reprobada',
   canceled: 'anulada',
   cancelled: 'anulada',
 });
@@ -212,6 +228,24 @@ export function normalizeGradeStatus(value, defaultStatus = undefined) {
   return status;
 }
 
+export function normalizeSubjectEnrollmentStatus(
+  value,
+  defaultStatus = undefined,
+) {
+  const raw = normalizeOptionalString(value);
+  if (!raw) {
+    return defaultStatus;
+  }
+
+  const normalized = raw.toLowerCase();
+  const status = SUBJECT_ENROLLMENT_STATUS_ALIASES[normalized] || normalized;
+  if (!SUBJECT_ENROLLMENT_STATUSES.includes(status)) {
+    throw new BadRequestException('Estado de matricula-asignatura invalido');
+  }
+
+  return status;
+}
+
 export function normalizeOptionalDate(value) {
   const normalized = normalizeOptionalString(value);
   if (!normalized) {
@@ -340,6 +374,121 @@ export class ListEvaluationComponentsRequestDto {
   }
 }
 
+export class CreateMatriculaAsignaturaRequestDto {
+  constructor(payload) {
+    Object.assign(this, payload);
+  }
+
+  static from(value = {}) {
+    if (value instanceof CreateMatriculaAsignaturaRequestDto) {
+      return value;
+    }
+
+    return new CreateMatriculaAsignaturaRequestDto({
+      codigo: normalizeOptionalString(
+        pickFirst(value, [
+          'codigo',
+          'matriculaAsignaturaCodigo',
+          'matricula_asignatura_codigo',
+        ]),
+      ),
+      matriculaCodigo: normalizeRequiredString(
+        pickFirst(value, ['matriculaCodigo', 'matricula_codigo']),
+        'Codigo de matricula requerido',
+      ),
+      estudianteId: normalizeOptionalNumericId(
+        pickFirst(value, ['estudianteId', 'estudiante_id']),
+        'Estudiante invalido',
+      ),
+      estudianteCedula: normalizeOptionalString(
+        pickFirst(value, ['estudianteCedula', 'estudiante_cedula']),
+      ),
+      ofertaCursoId: normalizeOptionalNumericId(
+        pickFirst(value, ['ofertaCursoId', 'oferta_curso_id']),
+        'Oferta de curso invalida',
+      ),
+      cicloAcadCodigo: normalizeRequiredString(
+        pickFirst(value, ['cicloAcadCodigo', 'ciclo_acad_codigo']),
+        'Ciclo academico requerido',
+      ),
+      materiaCodigo: normalizeRequiredString(
+        pickFirst(value, ['materiaCodigo', 'materia_codigo']),
+        'Materia requerida',
+      ),
+      paraleloCodigo: normalizeRequiredString(
+        pickFirst(value, ['paraleloCodigo', 'paralelo_codigo']),
+        'Paralelo requerido',
+      ),
+      docenteCedula: normalizeOptionalString(
+        pickFirst(value, ['docenteCedula', 'docente_cedula']),
+      ),
+      nivelCodigo: normalizeOptionalString(
+        pickFirst(value, ['nivelCodigo', 'nivel_codigo']),
+      ),
+      depenCodigo: normalizeOptionalString(
+        pickFirst(value, ['depenCodigo', 'depen_codigo']),
+      ),
+      estado: normalizeSubjectEnrollmentStatus(
+        pickFirst(value, ['estado', 'status']),
+        'activa',
+      ),
+    });
+  }
+}
+
+export class ListMatriculaAsignaturasRequestDto {
+  constructor(payload) {
+    Object.assign(this, payload);
+  }
+
+  static from(value = {}) {
+    if (value instanceof ListMatriculaAsignaturasRequestDto) {
+      return value;
+    }
+
+    return new ListMatriculaAsignaturasRequestDto({
+      codigo: normalizeOptionalString(
+        pickFirst(value, [
+          'codigo',
+          'matriculaAsignaturaCodigo',
+          'matricula_asignatura_codigo',
+        ]),
+      ),
+      matriculaCodigo: normalizeOptionalString(
+        pickFirst(value, ['matriculaCodigo', 'matricula_codigo']),
+      ),
+      estudianteId: normalizeOptionalNumericId(
+        pickFirst(value, ['estudianteId', 'estudiante_id']),
+        'Estudiante invalido',
+      ),
+      estudianteCedula: normalizeOptionalString(
+        pickFirst(value, ['estudianteCedula', 'estudiante_cedula']),
+      ),
+      ofertaCursoId: normalizeOptionalNumericId(
+        pickFirst(value, ['ofertaCursoId', 'oferta_curso_id']),
+        'Oferta de curso invalida',
+      ),
+      cicloAcadCodigo: normalizeOptionalString(
+        pickFirst(value, ['cicloAcadCodigo', 'ciclo_acad_codigo']),
+      ),
+      materiaCodigo: normalizeOptionalString(
+        pickFirst(value, ['materiaCodigo', 'materia_codigo']),
+      ),
+      paraleloCodigo: normalizeOptionalString(
+        pickFirst(value, ['paraleloCodigo', 'paralelo_codigo']),
+      ),
+      docenteCedula: normalizeOptionalString(
+        pickFirst(value, ['docenteCedula', 'docente_cedula']),
+      ),
+      estado: normalizeSubjectEnrollmentStatus(
+        pickFirst(value, ['estado', 'status']),
+      ),
+      limit: normalizeLimit(pickFirst(value, ['limit', 'limite'])),
+      offset: normalizeOffset(pickFirst(value, ['offset'])),
+    });
+  }
+}
+
 export class RegisterGradeRequestDto {
   constructor(payload) {
     Object.assign(this, payload);
@@ -351,14 +500,22 @@ export class RegisterGradeRequestDto {
     }
 
     return new RegisterGradeRequestDto({
-      matriculaCodigo: normalizeRequiredString(
+      matriculaAsignaturaCodigo: normalizeRequiredString(
+        pickFirst(value, [
+          'matriculaAsignaturaCodigo',
+          'matricula_asignatura_codigo',
+          'detalleMatriculaCodigo',
+          'detalle_matricula_codigo',
+        ]),
+        'Matricula-asignatura requerida',
+      ),
+      matriculaCodigo: normalizeOptionalString(
         pickFirst(value, [
           'matriculaCodigo',
           'matricula_codigo',
           'matriculaId',
           'matricula_id',
         ]),
-        'Matricula invalida',
       ),
       estudianteId: normalizeOptionalNumericId(
         pickFirst(value, ['estudianteId', 'estudiante_id']),
@@ -439,6 +596,14 @@ export class ListGradesRequestDto {
     }
 
     return new ListGradesRequestDto({
+      matriculaAsignaturaCodigo: normalizeOptionalString(
+        pickFirst(value, [
+          'matriculaAsignaturaCodigo',
+          'matricula_asignatura_codigo',
+          'detalleMatriculaCodigo',
+          'detalle_matricula_codigo',
+        ]),
+      ),
       matriculaCodigo: normalizeOptionalString(
         pickFirst(value, [
           'matriculaCodigo',
@@ -454,6 +619,18 @@ export class ListGradesRequestDto {
       ofertaCursoId: normalizeOptionalNumericId(
         pickFirst(value, ['ofertaCursoId', 'oferta_curso_id']),
         'Oferta de curso invalida',
+      ),
+      cicloAcadCodigo: normalizeOptionalString(
+        pickFirst(value, ['cicloAcadCodigo', 'ciclo_acad_codigo']),
+      ),
+      materiaCodigo: normalizeOptionalString(
+        pickFirst(value, ['materiaCodigo', 'materia_codigo']),
+      ),
+      paraleloCodigo: normalizeOptionalString(
+        pickFirst(value, ['paraleloCodigo', 'paralelo_codigo']),
+      ),
+      estudianteCedula: normalizeOptionalString(
+        pickFirst(value, ['estudianteCedula', 'estudiante_cedula']),
       ),
       estado: normalizeGradeStatus(pickFirst(value, ['estado', 'status'])),
       soloPublicadas: normalizeBoolean(
@@ -476,14 +653,22 @@ export class PublishGradesRequestDto {
     }
 
     return new PublishGradesRequestDto({
-      matriculaCodigo: normalizeRequiredString(
+      matriculaAsignaturaCodigo: normalizeRequiredString(
+        pickFirst(value, [
+          'matriculaAsignaturaCodigo',
+          'matricula_asignatura_codigo',
+          'detalleMatriculaCodigo',
+          'detalle_matricula_codigo',
+        ]),
+        'Matricula-asignatura requerida',
+      ),
+      matriculaCodigo: normalizeOptionalString(
         pickFirst(value, [
           'matriculaCodigo',
           'matricula_codigo',
           'matriculaId',
           'matricula_id',
         ]),
-        'Matricula invalida',
       ),
       publicadaPor: normalizeOptionalNumericId(
         pickFirst(value, ['publicadaPor', 'publicada_por']),
@@ -504,15 +689,67 @@ export class FinalGradeRequestDto {
     }
 
     return new FinalGradeRequestDto({
-      matriculaCodigo: normalizeRequiredString(
+      matriculaAsignaturaCodigo: normalizeRequiredString(
+        pickFirst(value, [
+          'matriculaAsignaturaCodigo',
+          'matricula_asignatura_codigo',
+          'detalleMatriculaCodigo',
+          'detalle_matricula_codigo',
+        ]),
+        'Matricula-asignatura requerida',
+      ),
+      matriculaCodigo: normalizeOptionalString(
         pickFirst(value, [
           'matriculaCodigo',
           'matricula_codigo',
           'matriculaId',
           'matricula_id',
         ]),
-        'Matricula invalida',
       ),
     });
+  }
+}
+
+export class CycleFinalSummaryRequestDto {
+  constructor(payload) {
+    Object.assign(this, payload);
+  }
+
+  static from(value = {}) {
+    if (value instanceof CycleFinalSummaryRequestDto) {
+      return value;
+    }
+
+    const request = new CycleFinalSummaryRequestDto({
+      cicloAcadCodigo: normalizeRequiredString(
+        pickFirst(value, ['cicloAcadCodigo', 'ciclo_acad_codigo']),
+        'Ciclo academico requerido',
+      ),
+      matriculaCodigo: normalizeOptionalString(
+        pickFirst(value, ['matriculaCodigo', 'matricula_codigo']),
+      ),
+      estudianteId: normalizeOptionalNumericId(
+        pickFirst(value, ['estudianteId', 'estudiante_id']),
+        'Estudiante invalido',
+      ),
+      estudianteCedula: normalizeOptionalString(
+        pickFirst(value, ['estudianteCedula', 'estudiante_cedula']),
+      ),
+      soloPublicadas: normalizeBoolean(
+        pickFirst(value, ['soloPublicadas', 'solo_publicadas']),
+      ),
+    });
+
+    if (
+      !request.matriculaCodigo &&
+      !request.estudianteId &&
+      !request.estudianteCedula
+    ) {
+      throw new BadRequestException(
+        'Indique matricula_codigo, estudiante_id o estudiante_cedula',
+      );
+    }
+
+    return request;
   }
 }

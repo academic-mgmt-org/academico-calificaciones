@@ -24,8 +24,32 @@ CREATE TABLE IF NOT EXISTS academico.componentes_calificacion (
         CHECK (estado IN ('activo', 'inactivo'))
 );
 
+CREATE TABLE IF NOT EXISTS academico.matricula_asignaturas (
+    codigo VARCHAR(200) PRIMARY KEY,
+    matricula_codigo VARCHAR(40) NOT NULL,
+    estudiante_id BIGINT,
+    estudiante_cedula VARCHAR(80),
+    oferta_curso_id BIGINT,
+    ciclo_acad_codigo VARCHAR(40) NOT NULL,
+    materia_codigo VARCHAR(120) NOT NULL,
+    paralelo_codigo VARCHAR(40) NOT NULL,
+    docente_cedula VARCHAR(80),
+    nivel_codigo VARCHAR(40),
+    depen_codigo VARCHAR(40),
+    estado VARCHAR(20) NOT NULL DEFAULT 'activa',
+    nota_final NUMERIC(5,2),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_matricula_asignaturas_estado
+        CHECK (estado IN ('activa', 'aprobada', 'reprobada', 'anulada')),
+    CONSTRAINT chk_matricula_asignaturas_nota_final
+        CHECK (nota_final IS NULL OR (nota_final >= 0 AND nota_final <= 10))
+);
+
 CREATE TABLE IF NOT EXISTS academico.calificaciones (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    matricula_asignatura_codigo VARCHAR(200) NOT NULL,
     matricula_codigo VARCHAR(40) NOT NULL,
     estudiante_id BIGINT,
     oferta_curso_id BIGINT,
@@ -62,14 +86,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_componentes_calificacion_contexto_nombre
         LOWER(nombre)
     );
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_calificaciones_matricula_codigo_componente_activa
-    ON academico.calificaciones (matricula_codigo, componente_id)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_matricula_asignaturas_contexto
+    ON academico.matricula_asignaturas (
+        matricula_codigo,
+        ciclo_acad_codigo,
+        materia_codigo,
+        paralelo_codigo,
+        (COALESCE(docente_cedula, ''))
+    )
+    WHERE estado <> 'anulada';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_calificaciones_matricula_asignatura_componente_activa
+    ON academico.calificaciones (matricula_asignatura_codigo, componente_id)
     WHERE estado <> 'anulada';
 
 CREATE INDEX IF NOT EXISTS idx_componentes_calificacion_oferta
     ON academico.componentes_calificacion(oferta_curso_id);
 CREATE INDEX IF NOT EXISTS idx_componentes_calificacion_paralelo
     ON academico.componentes_calificacion(paralelo_id);
+CREATE INDEX IF NOT EXISTS idx_matricula_asignaturas_matricula
+    ON academico.matricula_asignaturas(matricula_codigo);
+CREATE INDEX IF NOT EXISTS idx_matricula_asignaturas_estudiante
+    ON academico.matricula_asignaturas(estudiante_id);
+CREATE INDEX IF NOT EXISTS idx_matricula_asignaturas_estudiante_cedula
+    ON academico.matricula_asignaturas(estudiante_cedula);
+CREATE INDEX IF NOT EXISTS idx_matricula_asignaturas_ciclo
+    ON academico.matricula_asignaturas(ciclo_acad_codigo);
+CREATE INDEX IF NOT EXISTS idx_matricula_asignaturas_materia
+    ON academico.matricula_asignaturas(materia_codigo);
+CREATE INDEX IF NOT EXISTS idx_calificaciones_matricula_asignatura
+    ON academico.calificaciones(matricula_asignatura_codigo);
 CREATE INDEX IF NOT EXISTS idx_calificaciones_matricula_codigo
     ON academico.calificaciones(matricula_codigo);
 CREATE INDEX IF NOT EXISTS idx_calificaciones_estudiante

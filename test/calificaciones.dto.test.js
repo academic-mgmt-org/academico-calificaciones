@@ -8,17 +8,20 @@ const {
 
 test('registra notas en escala de 0 a 10', () => {
   const request = RegisterGradeRequestDto.from({
-    matricula_codigo: 'MAT-001',
+    matricula_asignatura_codigo: 'MAT-001:2026A:SW-101:A:DOC-1',
     componente_id: '1',
     nota: 10,
   });
 
-  assert.equal(request.matriculaCodigo, 'MAT-001');
+  assert.equal(
+    request.matriculaAsignaturaCodigo,
+    'MAT-001:2026A:SW-101:A:DOC-1',
+  );
   assert.equal(request.nota, 10);
   assert.throws(
     () =>
       RegisterGradeRequestDto.from({
-        matricula_codigo: 'MAT-001',
+        matricula_asignatura_codigo: 'MAT-001:2026A:SW-101:A:DOC-1',
         componente_id: '1',
         nota: 10.01,
       }),

@@ -38,6 +38,19 @@ export default (router, app) => {
       );
     },
 
+    async createMatriculaAsignatura(req) {
+      return withConnectErrors(async () => ({
+        matriculaAsignatura:
+          await calificacionesService.createMatriculaAsignatura(req),
+      }));
+    },
+
+    async listMatriculaAsignaturas(req) {
+      return withConnectErrors(async () =>
+        calificacionesService.listMatriculaAsignaturas(req),
+      );
+    },
+
     async registerGrade(req) {
       return withConnectErrors(async () => ({
         grade: await calificacionesService.registerGrade(req),
@@ -71,6 +84,12 @@ export default (router, app) => {
     async getFinalGrade(req) {
       return withConnectErrors(async () => ({
         finalGrade: await calificacionesService.getFinalGrade(req),
+      }));
+    },
+
+    async getCycleFinalSummary(req) {
+      return withConnectErrors(async () => ({
+        summary: await calificacionesService.getCycleFinalSummary(req),
       }));
     },
   });

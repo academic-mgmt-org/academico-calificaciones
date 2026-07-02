@@ -7,10 +7,13 @@ import {
 } from '@nestjs/common';
 import getPool from '../db';
 import {
+  CreateMatriculaAsignaturaRequestDto,
+  CycleFinalSummaryRequestDto,
   CreateEvaluationComponentRequestDto,
   FinalGradeRequestDto,
   ListEvaluationComponentsRequestDto,
   ListGradesRequestDto,
+  ListMatriculaAsignaturasRequestDto,
   PublishGradesRequestDto,
   RegisterGradeRequestDto,
   UpdateEvaluationComponentRequestDto,
@@ -56,8 +59,31 @@ export class CalificacionesService {
           CHECK (estado IN ('activo', 'inactivo'))
       );
 
+      CREATE TABLE IF NOT EXISTS academico.matricula_asignaturas (
+        codigo VARCHAR(200) PRIMARY KEY,
+        matricula_codigo VARCHAR(40) NOT NULL,
+        estudiante_id BIGINT,
+        estudiante_cedula VARCHAR(80),
+        oferta_curso_id BIGINT,
+        ciclo_acad_codigo VARCHAR(40) NOT NULL,
+        materia_codigo VARCHAR(120) NOT NULL,
+        paralelo_codigo VARCHAR(40) NOT NULL,
+        docente_cedula VARCHAR(80),
+        nivel_codigo VARCHAR(40),
+        depen_codigo VARCHAR(40),
+        estado VARCHAR(20) NOT NULL DEFAULT 'activa',
+        nota_final NUMERIC(5,2),
+        creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT chk_matricula_asignaturas_estado
+          CHECK (estado IN ('activa', 'aprobada', 'reprobada', 'anulada')),
+        CONSTRAINT chk_matricula_asignaturas_nota_final
+          CHECK (nota_final IS NULL OR (nota_final >= 0 AND nota_final <= 10))
+      );
+
       CREATE TABLE IF NOT EXISTS academico.calificaciones (
         id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        matricula_asignatura_codigo VARCHAR(200) NOT NULL,
         matricula_codigo VARCHAR(40) NOT NULL,
         estudiante_id BIGINT,
         oferta_curso_id BIGINT,
@@ -89,6 +115,10 @@ export class CalificacionesService {
       DROP INDEX IF EXISTS academico.uq_calificaciones_matricula_componente_activa;
       DROP INDEX IF EXISTS academico.idx_calificaciones_matricula;
       DROP INDEX IF EXISTS academico.idx_calificaciones_matricula_id;
+      DROP INDEX IF EXISTS academico.uq_calificaciones_matricula_codigo_componente_activa;
+
+      ALTER TABLE academico.calificaciones
+        ADD COLUMN IF NOT EXISTS matricula_asignatura_codigo VARCHAR(200);
 
       DO $$
       BEGIN
@@ -122,6 +152,44 @@ export class CalificacionesService {
         END IF;
       END $$;
 
+      INSERT INTO academico.matricula_asignaturas (
+        codigo,
+        matricula_codigo,
+        estudiante_id,
+        oferta_curso_id,
+        ciclo_acad_codigo,
+        materia_codigo,
+        paralelo_codigo
+      )
+      SELECT DISTINCT
+        CONCAT('LEGACY:', matricula_codigo),
+        matricula_codigo,
+        estudiante_id,
+        oferta_curso_id,
+        'SIN-CICLO',
+        'SIN-MATERIA',
+        'SIN-PARALELO'
+      FROM academico.calificaciones
+      WHERE matricula_asignatura_codigo IS NULL
+      ON CONFLICT (codigo) DO NOTHING;
+
+      UPDATE academico.calificaciones
+      SET matricula_asignatura_codigo = CONCAT('LEGACY:', matricula_codigo)
+      WHERE matricula_asignatura_codigo IS NULL;
+
+      ALTER TABLE academico.calificaciones
+        ALTER COLUMN matricula_asignatura_codigo SET NOT NULL;
+
+      ALTER TABLE academico.calificaciones
+        DROP CONSTRAINT IF EXISTS fk_calificaciones_matricula_asignatura;
+
+      ALTER TABLE academico.calificaciones
+        ADD CONSTRAINT fk_calificaciones_matricula_asignatura
+          FOREIGN KEY (matricula_asignatura_codigo)
+          REFERENCES academico.matricula_asignaturas(codigo)
+          ON UPDATE CASCADE
+          ON DELETE RESTRICT;
+
       CREATE UNIQUE INDEX IF NOT EXISTS uq_componentes_calificacion_contexto_nombre
         ON academico.componentes_calificacion (
           COALESCE(oferta_curso_id, -1),
@@ -129,14 +197,36 @@ export class CalificacionesService {
           LOWER(nombre)
         );
 
-      CREATE UNIQUE INDEX IF NOT EXISTS uq_calificaciones_matricula_codigo_componente_activa
-        ON academico.calificaciones (matricula_codigo, componente_id)
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_matricula_asignaturas_contexto
+        ON academico.matricula_asignaturas (
+          matricula_codigo,
+          ciclo_acad_codigo,
+          materia_codigo,
+          paralelo_codigo,
+          (COALESCE(docente_cedula, ''))
+        )
+        WHERE estado <> 'anulada';
+
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_calificaciones_matricula_asignatura_componente_activa
+        ON academico.calificaciones (matricula_asignatura_codigo, componente_id)
         WHERE estado <> 'anulada';
 
       CREATE INDEX IF NOT EXISTS idx_componentes_calificacion_oferta
         ON academico.componentes_calificacion(oferta_curso_id);
       CREATE INDEX IF NOT EXISTS idx_componentes_calificacion_paralelo
         ON academico.componentes_calificacion(paralelo_id);
+      CREATE INDEX IF NOT EXISTS idx_matricula_asignaturas_matricula
+        ON academico.matricula_asignaturas(matricula_codigo);
+      CREATE INDEX IF NOT EXISTS idx_matricula_asignaturas_estudiante
+        ON academico.matricula_asignaturas(estudiante_id);
+      CREATE INDEX IF NOT EXISTS idx_matricula_asignaturas_estudiante_cedula
+        ON academico.matricula_asignaturas(estudiante_cedula);
+      CREATE INDEX IF NOT EXISTS idx_matricula_asignaturas_ciclo
+        ON academico.matricula_asignaturas(ciclo_acad_codigo);
+      CREATE INDEX IF NOT EXISTS idx_matricula_asignaturas_materia
+        ON academico.matricula_asignaturas(materia_codigo);
+      CREATE INDEX IF NOT EXISTS idx_calificaciones_matricula_asignatura
+        ON academico.calificaciones(matricula_asignatura_codigo);
       CREATE INDEX IF NOT EXISTS idx_calificaciones_matricula_codigo
         ON academico.calificaciones(matricula_codigo);
       CREATE INDEX IF NOT EXISTS idx_calificaciones_estudiante
@@ -367,6 +457,115 @@ export class CalificacionesService {
     };
   }
 
+  async createMatriculaAsignatura(payload = {}) {
+    const request = CreateMatriculaAsignaturaRequestDto.from(payload);
+    const codigo =
+      request.codigo || this.buildMatriculaAsignaturaCodigo(request);
+
+    try {
+      const { rows } = await this.pool.query(
+        `
+        INSERT INTO academico.matricula_asignaturas (
+          codigo,
+          matricula_codigo,
+          estudiante_id,
+          estudiante_cedula,
+          oferta_curso_id,
+          ciclo_acad_codigo,
+          materia_codigo,
+          paralelo_codigo,
+          docente_cedula,
+          nivel_codigo,
+          depen_codigo,
+          estado
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        RETURNING *
+        `,
+        [
+          codigo,
+          request.matriculaCodigo,
+          request.estudianteId || null,
+          request.estudianteCedula || null,
+          request.ofertaCursoId || null,
+          request.cicloAcadCodigo,
+          request.materiaCodigo,
+          request.paraleloCodigo,
+          request.docenteCedula || null,
+          request.nivelCodigo || null,
+          request.depenCodigo || null,
+          request.estado,
+        ],
+      );
+
+      const matriculaAsignatura = this.mapMatriculaAsignaturaRow(rows[0]);
+      this.logDomainEvent(
+        'SUBJECT_ENROLLMENT_CREATED',
+        matriculaAsignatura.codigo,
+        {
+          matriculaCodigo: matriculaAsignatura.matriculaCodigo,
+          cicloAcadCodigo: matriculaAsignatura.cicloAcadCodigo,
+          materiaCodigo: matriculaAsignatura.materiaCodigo,
+        },
+      );
+      return matriculaAsignatura;
+    } catch (error) {
+      this.handleDatabaseError(error);
+    }
+  }
+
+  async listMatriculaAsignaturas(payload = {}) {
+    const request = ListMatriculaAsignaturasRequestDto.from(payload);
+    const values = [];
+    const where = [];
+
+    this.addWhere(where, values, 'codigo', request.codigo);
+    this.addWhere(where, values, 'matricula_codigo', request.matriculaCodigo);
+    this.addWhere(where, values, 'estudiante_id', request.estudianteId);
+    this.addWhere(where, values, 'estudiante_cedula', request.estudianteCedula);
+    this.addWhere(where, values, 'oferta_curso_id', request.ofertaCursoId);
+    this.addWhere(where, values, 'ciclo_acad_codigo', request.cicloAcadCodigo);
+    this.addWhere(where, values, 'materia_codigo', request.materiaCodigo);
+    this.addWhere(where, values, 'paralelo_codigo', request.paraleloCodigo);
+    this.addWhere(where, values, 'docente_cedula', request.docenteCedula);
+    this.addWhere(where, values, 'estado', request.estado);
+
+    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const countValues = [...values];
+    values.push(request.limit, request.offset);
+
+    const [{ rows }, totalResult] = await Promise.all([
+      this.pool.query(
+        `
+        SELECT *
+        FROM academico.matricula_asignaturas
+        ${whereClause}
+        ORDER BY ciclo_acad_codigo DESC, materia_codigo ASC, paralelo_codigo ASC, codigo ASC
+        LIMIT $${values.length - 1}
+        OFFSET $${values.length}
+        `,
+        values,
+      ),
+      this.pool.query(
+        `
+        SELECT COUNT(*)::int AS total
+        FROM academico.matricula_asignaturas
+        ${whereClause}
+        `,
+        countValues,
+      ),
+    ]);
+
+    return {
+      matriculaAsignaturas: rows.map((row) =>
+        this.mapMatriculaAsignaturaRow(row),
+      ),
+      total: Number(totalResult.rows[0]?.total || 0),
+      limit: request.limit,
+      offset: request.offset,
+    };
+  }
+
   async registerGrade(payload = {}) {
     const request = RegisterGradeRequestDto.from(payload);
     const client = await this.pool.connect();
@@ -378,17 +577,24 @@ export class CalificacionesService {
         client,
         request.componenteId,
       );
-      const enrollment = await this.resolveEnrollment(
+      const matriculaAsignatura = await this.assertMatriculaAsignaturaExists(
         client,
-        request.matriculaCodigo,
+        request.matriculaAsignaturaCodigo,
       );
-      const estudianteId = request.estudianteId || enrollment.estudianteId;
-      const ofertaCursoId = component.ofertaCursoId || enrollment.ofertaCursoId;
+      this.assertComponentMatchesMatriculaAsignatura(
+        component,
+        matriculaAsignatura,
+      );
+      const estudianteId =
+        request.estudianteId || matriculaAsignatura.estudianteId;
+      const ofertaCursoId =
+        component.ofertaCursoId || matriculaAsignatura.ofertaCursoId;
       const estado = request.publicar ? 'publicada' : 'borrador';
 
       const { rows } = await client.query(
         `
         INSERT INTO academico.calificaciones (
+          matricula_asignatura_codigo,
           matricula_codigo,
           estudiante_id,
           oferta_curso_id,
@@ -402,11 +608,12 @@ export class CalificacionesService {
           publicada,
           registrada_por
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING id
         `,
         [
-          request.matriculaCodigo,
+          matriculaAsignatura.codigo,
+          matriculaAsignatura.matriculaCodigo,
           estudianteId || null,
           ofertaCursoId || null,
           component.id,
@@ -423,7 +630,8 @@ export class CalificacionesService {
 
       gradeId = rows[0].id;
       this.logDomainEvent('GRADE_REGISTERED', gradeId, {
-        matriculaCodigo: request.matriculaCodigo,
+        matriculaAsignaturaCodigo: matriculaAsignatura.codigo,
+        matriculaCodigo: matriculaAsignatura.matriculaCodigo,
         componenteId: component.id,
         publicada: request.publicar,
       });
@@ -431,9 +639,9 @@ export class CalificacionesService {
       if (request.publicar) {
         const finalGrade = await this.calculateFinalGrade(
           client,
-          request.matriculaCodigo,
+          matriculaAsignatura.codigo,
         );
-        await this.syncEnrollmentFinalGrade(client, finalGrade);
+        await this.syncSubjectEnrollmentFinalGrade(client, finalGrade);
       }
 
       await client.query('COMMIT');
@@ -507,9 +715,9 @@ export class CalificacionesService {
 
         const finalGrade = await this.calculateFinalGrade(
           client,
-          current.matriculaCodigo,
+          current.matriculaAsignaturaCodigo,
         );
-        await this.syncEnrollmentFinalGrade(client, finalGrade);
+        await this.syncSubjectEnrollmentFinalGrade(client, finalGrade);
         this.logDomainEvent('GRADE_UPDATED', request.id, {
           updatedFields: updates.map((update) => update.split('=')[0].trim()),
         });
@@ -553,28 +761,53 @@ export class CalificacionesService {
     const values = [];
     const where = [];
 
+    if (request.matriculaAsignaturaCodigo) {
+      values.push(request.matriculaAsignaturaCodigo);
+      where.push(`c.matricula_asignatura_codigo = $${values.length}`);
+    }
+
     if (request.matriculaCodigo) {
       values.push(request.matriculaCodigo);
-      where.push(`matricula_codigo = $${values.length}`);
+      where.push(`c.matricula_codigo = $${values.length}`);
     }
 
     if (request.estudianteId) {
       values.push(request.estudianteId);
-      where.push(`estudiante_id = $${values.length}`);
+      where.push(`c.estudiante_id = $${values.length}`);
+    }
+
+    if (request.estudianteCedula) {
+      values.push(request.estudianteCedula);
+      where.push(`ma.estudiante_cedula = $${values.length}`);
     }
 
     if (request.ofertaCursoId) {
       values.push(request.ofertaCursoId);
-      where.push(`oferta_curso_id = $${values.length}`);
+      where.push(`c.oferta_curso_id = $${values.length}`);
+    }
+
+    if (request.cicloAcadCodigo) {
+      values.push(request.cicloAcadCodigo);
+      where.push(`ma.ciclo_acad_codigo = $${values.length}`);
+    }
+
+    if (request.materiaCodigo) {
+      values.push(request.materiaCodigo);
+      where.push(`ma.materia_codigo = $${values.length}`);
+    }
+
+    if (request.paraleloCodigo) {
+      values.push(request.paraleloCodigo);
+      where.push(`ma.paralelo_codigo = $${values.length}`);
     }
 
     if (request.estado) {
       values.push(request.estado);
-      where.push(`estado = $${values.length}`);
+      where.push(`c.estado = $${values.length}`);
     }
 
     if (request.soloPublicadas) {
-      where.push('publicada = TRUE');
+      where.push('c.publicada = TRUE');
     }
 
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -584,10 +817,12 @@ export class CalificacionesService {
     const [{ rows }, totalResult] = await Promise.all([
       this.pool.query(
         `
-        SELECT *
-        FROM academico.calificaciones
+        SELECT c.*
+        FROM academico.calificaciones c
+        JOIN academico.matricula_asignaturas ma
+          ON ma.codigo = c.matricula_asignatura_codigo
         ${whereClause}
-        ORDER BY matricula_codigo ASC, fecha_registro DESC, id DESC
+        ORDER BY ma.ciclo_acad_codigo DESC, ma.materia_codigo ASC, c.fecha_registro DESC, c.id DESC
         LIMIT $${values.length - 1}
         OFFSET $${values.length}
         `,
@@ -596,7 +831,9 @@ export class CalificacionesService {
       this.pool.query(
         `
         SELECT COUNT(*)::int AS total
-        FROM academico.calificaciones
+        FROM academico.calificaciones c
+        JOIN academico.matricula_asignaturas ma
+          ON ma.codigo = c.matricula_asignatura_codigo
         ${whereClause}
         `,
         countValues,
@@ -626,10 +863,10 @@ export class CalificacionesService {
             estado = 'publicada',
             registrada_por = COALESCE($2, registrada_por),
             actualizado_en = NOW()
-        WHERE matricula_codigo = $1
+        WHERE matricula_asignatura_codigo = $1
           AND estado <> 'anulada'
         `,
-        [request.matriculaCodigo, request.publicadaPor || null],
+        [request.matriculaAsignaturaCodigo, request.publicadaPor || null],
       );
       affected = result.rowCount;
 
@@ -641,15 +878,19 @@ export class CalificacionesService {
 
       finalGrade = await this.calculateFinalGrade(
         client,
-        request.matriculaCodigo,
+        request.matriculaAsignaturaCodigo,
       );
-      await this.syncEnrollmentFinalGrade(client, finalGrade);
+      await this.syncSubjectEnrollmentFinalGrade(client, finalGrade);
       await client.query('COMMIT');
 
-      this.logDomainEvent('GRADES_PUBLISHED', request.matriculaCodigo, {
-        affected,
-        notaFinal: finalGrade.notaFinal,
-      });
+      this.logDomainEvent(
+        'GRADES_PUBLISHED',
+        request.matriculaAsignaturaCodigo,
+        {
+          affected,
+          notaFinal: finalGrade.notaFinal,
+        },
+      );
     } catch (error) {
       await this.rollbackQuietly(client);
       this.handleDatabaseError(error);
@@ -662,14 +903,80 @@ export class CalificacionesService {
       message: `Calificaciones publicadas. Nota final: ${finalGrade.notaFinal.toFixed(
         2,
       )}`,
-      affectedId: request.matriculaCodigo,
+      affectedId: request.matriculaAsignaturaCodigo,
       affected,
     };
   }
 
   async getFinalGrade(payload = {}) {
     const request = FinalGradeRequestDto.from(payload);
-    return this.calculateFinalGrade(this.pool, request.matriculaCodigo);
+    return this.calculateFinalGrade(
+      this.pool,
+      request.matriculaAsignaturaCodigo,
+    );
+  }
+
+  async getCycleFinalSummary(payload = {}) {
+    const request = CycleFinalSummaryRequestDto.from(payload);
+    const values = [request.cicloAcadCodigo];
+    const where = ['ciclo_acad_codigo = $1', "estado <> 'anulada'"];
+
+    if (request.matriculaCodigo) {
+      values.push(request.matriculaCodigo);
+      where.push(`matricula_codigo = $${values.length}`);
+    }
+
+    if (request.estudianteId) {
+      values.push(request.estudianteId);
+      where.push(`estudiante_id = $${values.length}`);
+    }
+
+    if (request.estudianteCedula) {
+      values.push(request.estudianteCedula);
+      where.push(`estudiante_cedula = $${values.length}`);
+    }
+
+    const { rows } = await this.pool.query(
+      `
+      SELECT *
+      FROM academico.matricula_asignaturas
+      WHERE ${where.join(' AND ')}
+      ORDER BY materia_codigo ASC, paralelo_codigo ASC, codigo ASC
+      `,
+      values,
+    );
+
+    const notasFinales = await Promise.all(
+      rows.map((row) => this.calculateFinalGrade(this.pool, row.codigo)),
+    );
+    const filteredNotasFinales = request.soloPublicadas
+      ? notasFinales.filter((finalGrade) => finalGrade.publicada)
+      : notasFinales;
+    const calificadas = filteredNotasFinales.filter(
+      (finalGrade) => finalGrade.estadoAcademico !== 'sin_calificaciones',
+    );
+    const promedioFinal =
+      calificadas.length > 0
+        ? Number(
+            (
+              calificadas.reduce(
+                (sum, finalGrade) => sum + finalGrade.notaFinal,
+                0,
+              ) / calificadas.length
+            ).toFixed(2),
+          )
+        : 0;
+
+    return {
+      cicloAcadCodigo: request.cicloAcadCodigo,
+      matriculaCodigo: request.matriculaCodigo || '',
+      estudianteId: request.estudianteId || '',
+      estudianteCedula: request.estudianteCedula || '',
+      promedioFinal,
+      materias: rows.length,
+      materiasCalificadas: calificadas.length,
+      notasFinales: filteredNotasFinales,
+    };
   }
 
   addUpdate(updates, values, column, value) {
@@ -679,6 +986,47 @@ export class CalificacionesService {
 
     values.push(value || value === 0 || value === false ? value : null);
     updates.push(`${column} = $${values.length}`);
+  }
+
+  addWhere(where, values, column, value) {
+    if (value === undefined) {
+      return;
+    }
+
+    values.push(value);
+    where.push(`${column} = $${values.length}`);
+  }
+
+  buildMatriculaAsignaturaCodigo(request) {
+    return [
+      request.matriculaCodigo,
+      request.cicloAcadCodigo,
+      request.materiaCodigo,
+      request.paraleloCodigo,
+      request.docenteCedula || 'SIN-DOCENTE',
+    ].join(':');
+  }
+
+  assertComponentMatchesMatriculaAsignatura(component, matriculaAsignatura) {
+    if (
+      component.ofertaCursoId &&
+      matriculaAsignatura.ofertaCursoId &&
+      component.ofertaCursoId !== matriculaAsignatura.ofertaCursoId
+    ) {
+      throw new BadRequestException(
+        'El componente no pertenece a la oferta de la matricula-asignatura',
+      );
+    }
+
+    if (
+      component.paraleloId &&
+      matriculaAsignatura.paraleloCodigo &&
+      component.paraleloId !== matriculaAsignatura.paraleloCodigo
+    ) {
+      throw new BadRequestException(
+        'El componente no pertenece al paralelo de la matricula-asignatura',
+      );
+    }
   }
 
   async assertComponentExists(client, id, includeInactive = false) {
@@ -702,6 +1050,25 @@ export class CalificacionesService {
 
   async getComponent(id, includeInactive = false) {
     return this.assertComponentExists(this.pool, id, includeInactive);
+  }
+
+  async assertMatriculaAsignaturaExists(client, codigo) {
+    const { rows } = await client.query(
+      `
+      SELECT *
+      FROM academico.matricula_asignaturas
+      WHERE codigo = $1
+        AND estado <> 'anulada'
+      LIMIT 1
+      `,
+      [codigo],
+    );
+
+    if (!rows.length) {
+      throw new NotFoundException('Matricula-asignatura no encontrada');
+    }
+
+    return this.mapMatriculaAsignaturaRow(rows[0]);
   }
 
   async assertGradeExists(client, id) {
@@ -763,22 +1130,30 @@ export class CalificacionesService {
     return {};
   }
 
-  async calculateFinalGrade(client, matriculaCodigo) {
+  async calculateFinalGrade(client, matriculaAsignaturaCodigo) {
+    const matriculaAsignatura = await this.assertMatriculaAsignaturaExists(
+      client,
+      matriculaAsignaturaCodigo,
+    );
     const { rows } = await client.query(
       `
       SELECT *
       FROM academico.calificaciones
-      WHERE matricula_codigo = $1
+      WHERE matricula_asignatura_codigo = $1
         AND estado <> 'anulada'
       ORDER BY fecha_registro ASC, id ASC
       `,
-      [matriculaCodigo],
+      [matriculaAsignaturaCodigo],
     );
 
     if (!rows.length) {
       return {
-        matriculaCodigo: String(matriculaCodigo),
-        estudianteId: '',
+        matriculaAsignaturaCodigo: matriculaAsignatura.codigo,
+        matriculaCodigo: matriculaAsignatura.matriculaCodigo,
+        estudianteId: matriculaAsignatura.estudianteId,
+        cicloAcadCodigo: matriculaAsignatura.cicloAcadCodigo,
+        materiaCodigo: matriculaAsignatura.materiaCodigo,
+        paraleloCodigo: matriculaAsignatura.paraleloCodigo,
         notaFinal: 0,
         ponderacionTotal: 0,
         estadoAcademico: 'sin_calificaciones',
@@ -808,9 +1183,14 @@ export class CalificacionesService {
     );
 
     return {
-      matriculaCodigo: String(matriculaCodigo),
+      matriculaAsignaturaCodigo: matriculaAsignatura.codigo,
+      matriculaCodigo: matriculaAsignatura.matriculaCodigo,
       estudianteId:
-        grades.find((grade) => grade.estudianteId)?.estudianteId || '',
+        grades.find((grade) => grade.estudianteId)?.estudianteId ||
+        matriculaAsignatura.estudianteId,
+      cicloAcadCodigo: matriculaAsignatura.cicloAcadCodigo,
+      materiaCodigo: matriculaAsignatura.materiaCodigo,
+      paraleloCodigo: matriculaAsignatura.paraleloCodigo,
       notaFinal,
       ponderacionTotal: Number(totalWeight.toFixed(2)),
       estadoAcademico:
@@ -820,45 +1200,29 @@ export class CalificacionesService {
     };
   }
 
-  async syncEnrollmentFinalGrade(client, finalGrade) {
+  async syncSubjectEnrollmentFinalGrade(client, finalGrade) {
     if (finalGrade.estadoAcademico === 'sin_calificaciones') {
       return;
     }
 
-    for (const schemaName of ['academico', 'public']) {
-      const exists = await this.tableExists(client, schemaName, 'matriculas');
-      if (!exists) {
-        continue;
-      }
-      const compatible = await this.columnsExist(
-        client,
-        schemaName,
-        'matriculas',
-        ['codigo', 'nota_final', 'estado', 'actualizado_en'],
-      );
-      if (!compatible) {
-        continue;
-      }
-
-      await client.query(
-        `
-          UPDATE ${schemaName}.matriculas
-          SET nota_final = $1,
-              estado = CASE
-                WHEN estado IN ('matriculado', 'aprobado', 'reprobado')
-                  THEN $2
-                ELSE estado
-              END,
-              actualizado_en = NOW()
-          WHERE codigo = $3
-          `,
-        [
-          finalGrade.notaFinal,
-          finalGrade.estadoAcademico,
-          finalGrade.matriculaCodigo,
-        ],
-      );
-    }
+    await client.query(
+      `
+      UPDATE academico.matricula_asignaturas
+      SET nota_final = $1,
+          estado = CASE
+            WHEN estado IN ('activa', 'aprobada', 'reprobada')
+              THEN $2
+            ELSE estado
+          END,
+          actualizado_en = NOW()
+      WHERE codigo = $3
+      `,
+      [
+        finalGrade.notaFinal,
+        finalGrade.estadoAcademico,
+        finalGrade.matriculaAsignaturaCodigo,
+      ],
+    );
   }
 
   async tableExists(client, schemaName, tableName) {
@@ -900,9 +1264,35 @@ export class CalificacionesService {
     };
   }
 
+  mapMatriculaAsignaturaRow(row) {
+    return {
+      codigo: row.codigo || '',
+      matriculaCodigo: row.matricula_codigo || '',
+      estudianteId: row.estudiante_id ? String(row.estudiante_id) : '',
+      estudianteCedula: row.estudiante_cedula || '',
+      ofertaCursoId: row.oferta_curso_id ? String(row.oferta_curso_id) : '',
+      cicloAcadCodigo: row.ciclo_acad_codigo || '',
+      materiaCodigo: row.materia_codigo || '',
+      paraleloCodigo: row.paralelo_codigo || '',
+      docenteCedula: row.docente_cedula || '',
+      nivelCodigo: row.nivel_codigo || '',
+      depenCodigo: row.depen_codigo || '',
+      estado: row.estado || '',
+      notaFinal:
+        row.nota_final === null || row.nota_final === undefined
+          ? 0
+          : Number(row.nota_final),
+      creadoEn: this.formatDateTime(row.creado_en),
+      actualizadoEn: this.formatDateTime(row.actualizado_en),
+    };
+  }
+
   mapGradeRow(row) {
     return {
       id: row.id ? String(row.id) : '',
+      matriculaAsignaturaCodigo: row.matricula_asignatura_codigo
+        ? String(row.matricula_asignatura_codigo)
+        : '',
       matriculaCodigo: row.matricula_codigo ? String(row.matricula_codigo) : '',
       estudianteId: row.estudiante_id ? String(row.estudiante_id) : '',
       ofertaCursoId: row.oferta_curso_id ? String(row.oferta_curso_id) : '',

@@ -66,6 +66,64 @@ message ListEvaluationComponentsResponse {
   int32 offset = 4;
 }
 
+message MatriculaAsignatura {
+  string codigo = 1;
+  string matricula_codigo = 2;
+  string estudiante_id = 3;
+  string estudiante_cedula = 4;
+  string oferta_curso_id = 5;
+  string ciclo_acad_codigo = 6;
+  string materia_codigo = 7;
+  string paralelo_codigo = 8;
+  string docente_cedula = 9;
+  string nivel_codigo = 10;
+  string depen_codigo = 11;
+  string estado = 12;
+  double nota_final = 13;
+  string creado_en = 14;
+  string actualizado_en = 15;
+}
+
+message CreateMatriculaAsignaturaRequest {
+  string codigo = 1;
+  string matricula_codigo = 2;
+  string estudiante_id = 3;
+  string estudiante_cedula = 4;
+  string oferta_curso_id = 5;
+  string ciclo_acad_codigo = 6;
+  string materia_codigo = 7;
+  string paralelo_codigo = 8;
+  string docente_cedula = 9;
+  string nivel_codigo = 10;
+  string depen_codigo = 11;
+}
+
+message ListMatriculaAsignaturasRequest {
+  string codigo = 1;
+  string matricula_codigo = 2;
+  string estudiante_id = 3;
+  string estudiante_cedula = 4;
+  string oferta_curso_id = 5;
+  string ciclo_acad_codigo = 6;
+  string materia_codigo = 7;
+  string paralelo_codigo = 8;
+  string docente_cedula = 9;
+  string estado = 10;
+  int32 limit = 11;
+  int32 offset = 12;
+}
+
+message MatriculaAsignaturaResponse {
+  MatriculaAsignatura matricula_asignatura = 1;
+}
+
+message ListMatriculaAsignaturasResponse {
+  repeated MatriculaAsignatura matricula_asignaturas = 1;
+  int32 total = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+}
+
 message Grade {
   string id = 1;
   string matricula_codigo = 2;
@@ -83,6 +141,7 @@ message Grade {
   string fecha_registro = 14;
   string creado_en = 15;
   string actualizado_en = 16;
+  string matricula_asignatura_codigo = 17;
 }
 
 message RegisterGradeRequest {
@@ -93,6 +152,7 @@ message RegisterGradeRequest {
   string observacion = 5;
   string registrada_por = 6;
   bool publicar = 7;
+  string matricula_asignatura_codigo = 8;
 }
 
 message UpdateGradeRequest {
@@ -118,6 +178,11 @@ message ListGradesRequest {
   bool solo_publicadas = 5;
   int32 limit = 6;
   int32 offset = 7;
+  string matricula_asignatura_codigo = 8;
+  string ciclo_acad_codigo = 9;
+  string materia_codigo = 10;
+  string paralelo_codigo = 11;
+  string estudiante_cedula = 12;
 }
 
 message GradeResponse {
@@ -134,10 +199,12 @@ message ListGradesResponse {
 message PublishGradesRequest {
   string matricula_codigo = 1;
   string publicada_por = 2;
+  string matricula_asignatura_codigo = 3;
 }
 
 message FinalGradeRequest {
   string matricula_codigo = 1;
+  string matricula_asignatura_codigo = 2;
 }
 
 message FinalGrade {
@@ -148,10 +215,37 @@ message FinalGrade {
   string estado_academico = 5;
   bool publicada = 6;
   repeated Grade grades = 7;
+  string matricula_asignatura_codigo = 8;
+  string ciclo_acad_codigo = 9;
+  string materia_codigo = 10;
+  string paralelo_codigo = 11;
 }
 
 message FinalGradeResponse {
   FinalGrade final_grade = 1;
+}
+
+message CycleFinalSummaryRequest {
+  string ciclo_acad_codigo = 1;
+  string matricula_codigo = 2;
+  string estudiante_id = 3;
+  string estudiante_cedula = 4;
+  bool solo_publicadas = 5;
+}
+
+message CycleFinalSummary {
+  string ciclo_acad_codigo = 1;
+  string matricula_codigo = 2;
+  string estudiante_id = 3;
+  string estudiante_cedula = 4;
+  double promedio_final = 5;
+  int32 materias = 6;
+  int32 materias_calificadas = 7;
+  repeated FinalGrade notas_finales = 8;
+}
+
+message CycleFinalSummaryResponse {
+  CycleFinalSummary summary = 1;
 }
 
 message GenericResponse {
@@ -184,12 +278,15 @@ service GradingService {
   rpc UpdateEvaluationComponent(UpdateEvaluationComponentRequest) returns (EvaluationComponentResponse) {}
   rpc ListEvaluationComponents(ListEvaluationComponentsRequest) returns (ListEvaluationComponentsResponse) {}
   rpc DisableEvaluationComponent(ComponentIdRequest) returns (GenericResponse) {}
+  rpc CreateMatriculaAsignatura(CreateMatriculaAsignaturaRequest) returns (MatriculaAsignaturaResponse) {}
+  rpc ListMatriculaAsignaturas(ListMatriculaAsignaturasRequest) returns (ListMatriculaAsignaturasResponse) {}
   rpc RegisterGrade(RegisterGradeRequest) returns (GradeResponse) {}
   rpc UpdateGrade(UpdateGradeRequest) returns (GradeResponse) {}
   rpc GetGrade(GradeIdRequest) returns (GradeResponse) {}
   rpc ListGrades(ListGradesRequest) returns (ListGradesResponse) {}
   rpc PublishGrades(PublishGradesRequest) returns (GenericResponse) {}
   rpc GetFinalGrade(FinalGradeRequest) returns (FinalGradeResponse) {}
+  rpc GetCycleFinalSummary(CycleFinalSummaryRequest) returns (CycleFinalSummaryResponse) {}
 }
 
 service HealthService {
