@@ -12,14 +12,14 @@ export const GRADE_TYPES = Object.freeze([
 export const COMPONENT_STATUSES = Object.freeze(['activo', 'inactivo']);
 export const GRADE_STATUSES = Object.freeze([
   'borrador',
-  'publicada',
-  'anulada',
+  'publicado',
+  'anulado',
 ]);
 export const SUBJECT_ENROLLMENT_STATUSES = Object.freeze([
-  'activa',
-  'aprobada',
-  'reprobada',
-  'anulada',
+  'activo',
+  'aprobado',
+  'reprobado',
+  'anulado',
 ]);
 
 const TYPE_ALIASES = Object.freeze({
@@ -41,20 +41,26 @@ const COMPONENT_STATUS_ALIASES = Object.freeze({
 
 const GRADE_STATUS_ALIASES = Object.freeze({
   draft: 'borrador',
-  published: 'publicada',
-  publish: 'publicada',
-  canceled: 'anulada',
-  cancelled: 'anulada',
+  published: 'publicado',
+  publish: 'publicado',
+  publicada: 'publicado',
+  canceled: 'anulado',
+  cancelled: 'anulado',
+  anulada: 'anulado',
 });
 
 const SUBJECT_ENROLLMENT_STATUS_ALIASES = Object.freeze({
-  active: 'activa',
-  enabled: 'activa',
-  approved: 'aprobada',
-  failed: 'reprobada',
-  rejected: 'reprobada',
-  canceled: 'anulada',
-  cancelled: 'anulada',
+  active: 'activo',
+  enabled: 'activo',
+  activa: 'activo',
+  approved: 'aprobado',
+  aprobada: 'aprobado',
+  failed: 'reprobado',
+  rejected: 'reprobado',
+  reprobada: 'reprobado',
+  canceled: 'anulado',
+  cancelled: 'anulado',
+  anulada: 'anulado',
 });
 
 export function pickFirst(source, fields) {
@@ -430,7 +436,7 @@ export class CreateMatriculaAsignaturaRequestDto {
       ),
       estado: normalizeSubjectEnrollmentStatus(
         pickFirst(value, ['estado', 'status']),
-        'activa',
+        'activo',
       ),
     });
   }
@@ -578,8 +584,8 @@ export class UpdateGradeRequestDto {
         'Docente invalido',
       ),
       estado: normalizeGradeStatus(pickFirst(value, ['estado', 'status'])),
-      publicada: normalizeOptionalBoolean(
-        pickFirst(value, ['publicada', 'published']),
+      publicado: normalizeOptionalBoolean(
+        pickFirst(value, ['publicado', 'publicada', 'published']),
       ),
     });
   }
@@ -633,8 +639,13 @@ export class ListGradesRequestDto {
         pickFirst(value, ['estudianteCedula', 'estudiante_cedula']),
       ),
       estado: normalizeGradeStatus(pickFirst(value, ['estado', 'status'])),
-      soloPublicadas: normalizeBoolean(
-        pickFirst(value, ['soloPublicadas', 'solo_publicadas']),
+      soloPublicados: normalizeBoolean(
+        pickFirst(value, [
+          'soloPublicados',
+          'solo_publicados',
+          'soloPublicadas',
+          'solo_publicadas',
+        ]),
       ),
       limit: normalizeLimit(pickFirst(value, ['limit', 'limite'])),
       offset: normalizeOffset(pickFirst(value, ['offset'])),
@@ -670,8 +681,13 @@ export class PublishGradesRequestDto {
           'matricula_id',
         ]),
       ),
-      publicadaPor: normalizeOptionalNumericId(
-        pickFirst(value, ['publicadaPor', 'publicada_por']),
+      publicadoPor: normalizeOptionalNumericId(
+        pickFirst(value, [
+          'publicadoPor',
+          'publicado_por',
+          'publicadaPor',
+          'publicada_por',
+        ]),
         'Usuario publicador invalido',
       ),
     });
@@ -735,8 +751,13 @@ export class CycleFinalSummaryRequestDto {
       estudianteCedula: normalizeOptionalString(
         pickFirst(value, ['estudianteCedula', 'estudiante_cedula']),
       ),
-      soloPublicadas: normalizeBoolean(
-        pickFirst(value, ['soloPublicadas', 'solo_publicadas']),
+      soloPublicados: normalizeBoolean(
+        pickFirst(value, [
+          'soloPublicados',
+          'solo_publicados',
+          'soloPublicadas',
+          'solo_publicadas',
+        ]),
       ),
     });
 

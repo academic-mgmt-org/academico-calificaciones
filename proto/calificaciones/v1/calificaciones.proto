@@ -136,7 +136,7 @@ message Grade {
   double ponderacion = 9;
   string observacion = 10;
   string estado = 11;
-  bool publicada = 12;
+  bool publicado = 12;
   string registrada_por = 13;
   string fecha_registro = 14;
   string creado_en = 15;
@@ -163,7 +163,7 @@ message UpdateGradeRequest {
   optional string observacion = 5;
   optional string registrada_por = 6;
   optional string estado = 7;
-  optional bool publicada = 8;
+  optional bool publicado = 8;
 }
 
 message GradeIdRequest {
@@ -175,7 +175,7 @@ message ListGradesRequest {
   string estudiante_id = 2;
   string oferta_curso_id = 3;
   string estado = 4;
-  bool solo_publicadas = 5;
+  bool solo_publicados = 5;
   int32 limit = 6;
   int32 offset = 7;
   string matricula_asignatura_codigo = 8;
@@ -198,7 +198,7 @@ message ListGradesResponse {
 
 message PublishGradesRequest {
   string matricula_codigo = 1;
-  string publicada_por = 2;
+  string publicado_por = 2;
   string matricula_asignatura_codigo = 3;
 }
 
@@ -213,7 +213,7 @@ message FinalGrade {
   double nota_final = 3;
   double ponderacion_total = 4;
   string estado_academico = 5;
-  bool publicada = 6;
+  bool publicado = 6;
   repeated Grade grades = 7;
   string matricula_asignatura_codigo = 8;
   string ciclo_acad_codigo = 9;
@@ -230,7 +230,7 @@ message CycleFinalSummaryRequest {
   string matricula_codigo = 2;
   string estudiante_id = 3;
   string estudiante_cedula = 4;
-  bool solo_publicadas = 5;
+  bool solo_publicados = 5;
 }
 
 message CycleFinalSummary {

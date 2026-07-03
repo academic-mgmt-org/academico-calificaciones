@@ -71,12 +71,12 @@ export class CalificacionesService {
         docente_cedula VARCHAR(80),
         nivel_codigo VARCHAR(40),
         depen_codigo VARCHAR(40),
-        estado VARCHAR(20) NOT NULL DEFAULT 'activa',
+        estado VARCHAR(20) NOT NULL DEFAULT 'activo',
         nota_final NUMERIC(5,2),
         creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         CONSTRAINT chk_matricula_asignaturas_estado
-          CHECK (estado IN ('activa', 'aprobada', 'reprobada', 'anulada')),
+          CHECK (estado IN ('activo', 'aprobado', 'reprobado', 'anulado')),
         CONSTRAINT chk_matricula_asignaturas_nota_final
           CHECK (nota_final IS NULL OR (nota_final >= 0 AND nota_final <= 10))
       );
@@ -97,7 +97,7 @@ export class CalificacionesService {
         ponderacion NUMERIC(5,2) NOT NULL,
         observacion TEXT,
         estado VARCHAR(20) NOT NULL DEFAULT 'borrador',
-        publicada BOOLEAN NOT NULL DEFAULT FALSE,
+        publicado BOOLEAN NOT NULL DEFAULT FALSE,
         registrada_por BIGINT,
         fecha_registro TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -109,13 +109,84 @@ export class CalificacionesService {
         CONSTRAINT chk_calificaciones_ponderacion
           CHECK (ponderacion > 0 AND ponderacion <= 100),
         CONSTRAINT chk_calificaciones_estado
-          CHECK (estado IN ('borrador', 'publicada', 'anulada'))
+          CHECK (estado IN ('borrador', 'publicado', 'anulado'))
       );
 
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'academico'
+            AND table_name = 'calificaciones'
+            AND column_name = 'publicada'
+        ) AND NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'academico'
+            AND table_name = 'calificaciones'
+            AND column_name = 'publicado'
+        ) THEN
+          ALTER TABLE academico.calificaciones
+            RENAME COLUMN publicada TO publicado;
+        END IF;
+      END $$;
+
+      ALTER TABLE academico.calificaciones
+        ADD COLUMN IF NOT EXISTS publicado BOOLEAN;
+
+      UPDATE academico.calificaciones
+      SET publicado = FALSE
+      WHERE publicado IS NULL;
+
+      ALTER TABLE academico.calificaciones
+        ALTER COLUMN publicado SET DEFAULT FALSE,
+        ALTER COLUMN publicado SET NOT NULL;
+
+      ALTER TABLE academico.calificaciones
+        DROP CONSTRAINT IF EXISTS chk_calificaciones_estado;
+
+      UPDATE academico.calificaciones
+      SET estado = CASE estado
+        WHEN 'publicada' THEN 'publicado'
+        WHEN 'anulada' THEN 'anulado'
+        ELSE estado
+      END
+      WHERE estado IN ('publicada', 'anulada');
+
+      ALTER TABLE academico.calificaciones
+        ADD CONSTRAINT chk_calificaciones_estado
+          CHECK (estado IN ('borrador', 'publicado', 'anulado'));
+
+      ALTER TABLE academico.matricula_asignaturas
+        DROP CONSTRAINT IF EXISTS chk_matricula_asignaturas_estado;
+
+      ALTER TABLE academico.matricula_asignaturas
+        ALTER COLUMN estado SET DEFAULT 'activo';
+
+      UPDATE academico.matricula_asignaturas
+      SET estado = CASE estado
+        WHEN 'activa' THEN 'activo'
+        WHEN 'aprobada' THEN 'aprobado'
+        WHEN 'reprobada' THEN 'reprobado'
+        WHEN 'anulada' THEN 'anulado'
+        ELSE estado
+      END
+      WHERE estado IN ('activa', 'aprobada', 'reprobada', 'anulada');
+
+      ALTER TABLE academico.matricula_asignaturas
+        ADD CONSTRAINT chk_matricula_asignaturas_estado
+          CHECK (estado IN ('activo', 'aprobado', 'reprobado', 'anulado'));
+
       DROP INDEX IF EXISTS academico.uq_calificaciones_matricula_componente_activa;
+      DROP INDEX IF EXISTS academico.uq_calificaciones_matricula_componente_vigente;
       DROP INDEX IF EXISTS academico.idx_calificaciones_matricula;
       DROP INDEX IF EXISTS academico.idx_calificaciones_matricula_id;
       DROP INDEX IF EXISTS academico.uq_calificaciones_matricula_codigo_componente_activa;
+      DROP INDEX IF EXISTS academico.uq_calificaciones_matricula_codigo_componente_vigente;
+      DROP INDEX IF EXISTS academico.uq_calificaciones_matricula_asignatura_componente_activa;
+      DROP INDEX IF EXISTS academico.uq_calificaciones_matricula_asignatura_componente_vigente;
+      DROP INDEX IF EXISTS academico.idx_calificaciones_publicada;
 
       ALTER TABLE academico.calificaciones
         ADD COLUMN IF NOT EXISTS matricula_asignatura_codigo VARCHAR(200);
@@ -205,11 +276,11 @@ export class CalificacionesService {
           paralelo_codigo,
           (COALESCE(docente_cedula, ''))
         )
-        WHERE estado <> 'anulada';
+        WHERE estado <> 'anulado';
 
-      CREATE UNIQUE INDEX IF NOT EXISTS uq_calificaciones_matricula_asignatura_componente_activa
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_calificaciones_matricula_asignatura_componente_vigente
         ON academico.calificaciones (matricula_asignatura_codigo, componente_id)
-        WHERE estado <> 'anulada';
+        WHERE estado <> 'anulado';
 
       CREATE INDEX IF NOT EXISTS idx_componentes_calificacion_oferta
         ON academico.componentes_calificacion(oferta_curso_id);
@@ -233,8 +304,8 @@ export class CalificacionesService {
         ON academico.calificaciones(estudiante_id);
       CREATE INDEX IF NOT EXISTS idx_calificaciones_oferta
         ON academico.calificaciones(oferta_curso_id);
-      CREATE INDEX IF NOT EXISTS idx_calificaciones_publicada
-        ON academico.calificaciones(publicada);
+      CREATE INDEX IF NOT EXISTS idx_calificaciones_publicado
+        ON academico.calificaciones(publicado);
 
       ALTER TABLE academico.calificaciones
         DROP CONSTRAINT IF EXISTS uq_calificacion_matricula_evaluacion;
@@ -589,7 +660,7 @@ export class CalificacionesService {
         request.estudianteId || matriculaAsignatura.estudianteId;
       const ofertaCursoId =
         component.ofertaCursoId || matriculaAsignatura.ofertaCursoId;
-      const estado = request.publicar ? 'publicada' : 'borrador';
+      const estado = request.publicar ? 'publicado' : 'borrador';
 
       const { rows } = await client.query(
         `
@@ -605,7 +676,7 @@ export class CalificacionesService {
           ponderacion,
           observacion,
           estado,
-          publicada,
+          publicado,
           registrada_por
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -633,7 +704,7 @@ export class CalificacionesService {
         matriculaAsignaturaCodigo: matriculaAsignatura.codigo,
         matriculaCodigo: matriculaAsignatura.matriculaCodigo,
         componenteId: component.id,
-        publicada: request.publicar,
+        publicado: request.publicar,
       });
 
       if (request.publicar) {
@@ -687,14 +758,14 @@ export class CalificacionesService {
       this.addUpdate(updates, values, 'observacion', request.observacion);
       this.addUpdate(updates, values, 'registrada_por', request.registradaPor);
 
-      if (request.publicada !== undefined) {
-        this.addUpdate(updates, values, 'publicada', request.publicada);
+      if (request.publicado !== undefined) {
+        this.addUpdate(updates, values, 'publicado', request.publicado);
         if (!request.estado) {
           this.addUpdate(
             updates,
             values,
             'estado',
-            request.publicada ? 'publicada' : 'borrador',
+            request.publicado ? 'publicado' : 'borrador',
           );
         }
       }
@@ -806,8 +877,8 @@ export class CalificacionesService {
       where.push(`c.estado = $${values.length}`);
     }
 
-    if (request.soloPublicadas) {
-      where.push('c.publicada = TRUE');
+    if (request.soloPublicados) {
+      where.push('c.publicado = TRUE');
     }
 
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -859,20 +930,20 @@ export class CalificacionesService {
       const result = await client.query(
         `
         UPDATE academico.calificaciones
-        SET publicada = TRUE,
-            estado = 'publicada',
+        SET publicado = TRUE,
+            estado = 'publicado',
             registrada_por = COALESCE($2, registrada_por),
             actualizado_en = NOW()
         WHERE matricula_asignatura_codigo = $1
-          AND estado <> 'anulada'
+          AND estado <> 'anulado'
         `,
-        [request.matriculaAsignaturaCodigo, request.publicadaPor || null],
+        [request.matriculaAsignaturaCodigo, request.publicadoPor || null],
       );
       affected = result.rowCount;
 
       if (!affected) {
         throw new NotFoundException(
-          'No existen calificaciones activas para publicar',
+          'No existen registros vigentes de calificacion para publicar',
         );
       }
 
@@ -900,7 +971,7 @@ export class CalificacionesService {
 
     return {
       success: true,
-      message: `Calificaciones publicadas. Nota final: ${finalGrade.notaFinal.toFixed(
+      message: `Registros de calificacion publicados. Nota final: ${finalGrade.notaFinal.toFixed(
         2,
       )}`,
       affectedId: request.matriculaAsignaturaCodigo,
@@ -919,7 +990,7 @@ export class CalificacionesService {
   async getCycleFinalSummary(payload = {}) {
     const request = CycleFinalSummaryRequestDto.from(payload);
     const values = [request.cicloAcadCodigo];
-    const where = ['ciclo_acad_codigo = $1', "estado <> 'anulada'"];
+    const where = ['ciclo_acad_codigo = $1', "estado <> 'anulado'"];
 
     if (request.matriculaCodigo) {
       values.push(request.matriculaCodigo);
@@ -949,8 +1020,8 @@ export class CalificacionesService {
     const notasFinales = await Promise.all(
       rows.map((row) => this.calculateFinalGrade(this.pool, row.codigo)),
     );
-    const filteredNotasFinales = request.soloPublicadas
-      ? notasFinales.filter((finalGrade) => finalGrade.publicada)
+    const filteredNotasFinales = request.soloPublicados
+      ? notasFinales.filter((finalGrade) => finalGrade.publicado)
       : notasFinales;
     const calificadas = filteredNotasFinales.filter(
       (finalGrade) => finalGrade.estadoAcademico !== 'sin_calificaciones',
@@ -1058,7 +1129,7 @@ export class CalificacionesService {
       SELECT *
       FROM academico.matricula_asignaturas
       WHERE codigo = $1
-        AND estado <> 'anulada'
+        AND estado <> 'anulado'
       LIMIT 1
       `,
       [codigo],
@@ -1140,7 +1211,7 @@ export class CalificacionesService {
       SELECT *
       FROM academico.calificaciones
       WHERE matricula_asignatura_codigo = $1
-        AND estado <> 'anulada'
+        AND estado <> 'anulado'
       ORDER BY fecha_registro ASC, id ASC
       `,
       [matriculaAsignaturaCodigo],
@@ -1157,7 +1228,7 @@ export class CalificacionesService {
         notaFinal: 0,
         ponderacionTotal: 0,
         estadoAcademico: 'sin_calificaciones',
-        publicada: false,
+        publicado: false,
         grades: [],
       };
     }
@@ -1195,7 +1266,7 @@ export class CalificacionesService {
       ponderacionTotal: Number(totalWeight.toFixed(2)),
       estadoAcademico:
         notaFinal >= minimumPassingGrade ? 'aprobado' : 'reprobado',
-      publicada: grades.every((grade) => grade.publicada),
+      publicado: grades.every((grade) => grade.publicado),
       grades,
     };
   }
@@ -1210,7 +1281,7 @@ export class CalificacionesService {
       UPDATE academico.matricula_asignaturas
       SET nota_final = $1,
           estado = CASE
-            WHEN estado IN ('activa', 'aprobada', 'reprobada')
+            WHEN estado IN ('activo', 'aprobado', 'reprobado')
               THEN $2
             ELSE estado
           END,
@@ -1303,7 +1374,7 @@ export class CalificacionesService {
       ponderacion: Number(row.ponderacion || 0),
       observacion: row.observacion || '',
       estado: row.estado || '',
-      publicada: Boolean(row.publicada),
+      publicado: Boolean(row.publicado ?? row.publicada),
       registradaPor: row.registrada_por ? String(row.registrada_por) : '',
       fechaRegistro: this.formatDateTime(row.fecha_registro),
       creadoEn: this.formatDateTime(row.creado_en),
