@@ -53,6 +53,7 @@ async function bootstrap() {
       (next) => async (req) => {
         const serviceName = req.service?.typeName;
         if (
+          serviceName === 'grpc.health.v1.Health' ||
           serviceName === 'calificaciones.v1.HealthService' ||
           serviceName === 'grpc.reflection.v1.ServerReflection' ||
           serviceName === 'grpc.reflection.v1alpha.ServerReflection'

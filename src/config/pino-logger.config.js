@@ -78,6 +78,7 @@ export const pinoLoggerConfig = {
     autoLogging: {
       ignore: (req) =>
         [
+          '/grpc.health.v1.Health',
           '/grpc.reflection.v1.ServerReflection',
           '/grpc.reflection.v1alpha.ServerReflection',
           '/calificaciones.v1.HealthService',

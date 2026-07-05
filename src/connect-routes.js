@@ -4,6 +4,18 @@ import {
   HealthService,
 } from './gen/calificaciones/v1/calificaciones_pb.js';
 import { CalificacionesService } from './calificaciones/calificaciones.service.js';
+import getPool from './db.js';
+import { createDatabaseReadinessCheck } from './health/database-readiness.js';
+import {
+  createLegacyHealthHandlers,
+  registerGrpcHealthService,
+} from './health/grpc-health.js';
+
+const SERVICE_NAME = 'academico-calificaciones';
+const checkReadiness = createDatabaseReadinessCheck({
+  poolFactory: getPool,
+  dependencyName: 'PostgreSQL',
+});
 
 /**
  * ConnectRPC routes definitions for the Calificaciones core asset.
@@ -94,30 +106,16 @@ export default (router, app) => {
     },
   });
 
+  registerGrpcHealthService(router, {
+    serviceName: SERVICE_NAME,
+    readinessCheck: checkReadiness,
+  });
+
   router.service(HealthService, {
-    async health() {
-      return {
-        status: 'healthy',
-        service: 'academico-calificaciones',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-      };
-    },
-
-    async ready() {
-      return {
-        ready: true,
-        timestamp: new Date().toISOString(),
-      };
-    },
-
-    async live() {
-      return {
-        alive: true,
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-      };
-    },
+    ...createLegacyHealthHandlers({
+      serviceName: SERVICE_NAME,
+      readinessCheck: checkReadiness,
+    }),
   });
 
   return router;
