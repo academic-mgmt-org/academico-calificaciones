@@ -1,0 +1,13 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: academico-calificaciones
+  namespace: academico-prod
+  labels:
+    app.kubernetes.io/name: academico-calificaciones
+    app.kubernetes.io/part-of: academico
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: academico-calificaciones

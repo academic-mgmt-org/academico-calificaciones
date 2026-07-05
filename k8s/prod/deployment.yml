@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: academico-calificaciones
+  namespace: academico-prod
+  labels:
+    app.kubernetes.io/name: academico-calificaciones
+    app.kubernetes.io/part-of: academico
+spec:
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 300
+  minReadySeconds: 15
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: academico-calificaciones
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: academico-calificaciones
+        app.kubernetes.io/part-of: academico
+    spec:
+      imagePullSecrets:
+        - name: acr-pull-secret
+      terminationGracePeriodSeconds: 30
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - academico-prod-microservicios
+                      - academico-dev-microservicios
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - academico-prod-microservicios
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: academico-calificaciones
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: academico-calificaciones
+          image: acracademicoutn.azurecr.io/academicmgmtorgacademicocalificaciones:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 3004
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: academico-calificaciones-env
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+              ephemeral-storage: 512Mi
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep 10
+          startupProbe:
+            grpc:
+              port: 3004
+              service: academico-calificaciones-readiness
+            periodSeconds: 5
+            failureThreshold: 12
+            timeoutSeconds: 2
+          readinessProbe:
+            grpc:
+              port: 3004
+              service: academico-calificaciones-readiness
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 2
+          livenessProbe:
+            grpc:
+              port: 3004
+              service: academico-calificaciones-liveness
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 2

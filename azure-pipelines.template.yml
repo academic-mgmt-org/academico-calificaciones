@@ -3,22 +3,28 @@
 # Usage:
 # 1. Copy this file to azure-pipelines.yml in the target microservice.
 # 2. Adjust the parameters below for the service name, image repository,
-#    compose file, paths, ports and environment variables.
+#    compose file, Kubernetes manifests, paths, ports and environment variables.
 # 3. Create the referenced secret variables in Azure DevOps before running
 #    the pipeline. Example: DB_PASSWORD, NOTIFICACIONES_API_KEY, JWT_SECRET.
 #
 # Runtime model:
 # - Build runs on an Azure hosted agent and pushes the image to ACR.
 # - Development deploys automatically on this VM through the self-hosted agent.
-# - Production waits for ManualValidation and then deploys over SSH.
+# - Production waits for ManualValidation and then deploys to Kubernetes over SSH.
 #
-# Compose requirement:
+# Development Compose requirement:
 # - The compose file must exist in the repo, usually docker-compose.yml.
 # - Its image line should reference the configured imageEnvVariableName. Example:
 #     image: ${SERVICE_IMAGE}
 # - For single-port services, use PORT from .env. Example:
 #     ports:
 #       - "${PORT}:${PORT}"
+#
+# Production Kubernetes requirement:
+# - scripts/deploy_k8s_production.sh must exist in the repo.
+# - k8sManifestDir must contain the production manifests, usually k8s/prod.
+# - The deployment manifest must contain the configured k8sContainer name.
+# - appPort should match the application PORT and the manifest containerPort.
 
 parameters:
 - name: dockerRegistryServiceConnection
@@ -53,6 +59,14 @@ parameters:
   type: string
   default: 'self-hosted-agent'
 
+- name: developmentVariableGroup
+  type: string
+  default: 'academico-microservicio-dev'
+
+- name: productionVariableGroup
+  type: string
+  default: 'academico-microservicio-prod'
+
 - name: devRemoteAppPath
   type: string
   default: '/home/azureuser/academico-microservicio'
@@ -65,21 +79,120 @@ parameters:
   type: string
   default: 'azureuser'
 
-- name: prodRemoteAppPath
+- name: prodSshPrivateKeyB64
   type: string
-  default: '/home/azureuser/academico-microservicio'
+  default: '$(PROD_SSH_PRIVATE_KEY_B64)'
 
 - name: devComposeFile
   type: string
   default: 'docker-compose.yml'
 
-- name: prodComposeFile
-  type: string
-  default: 'docker-compose.yml'
-
+# Development fallback for PORT when the remote .env does not exist yet.
 - name: servicePort
   type: string
   default: ''
+
+# Production Kubernetes PORT value written into appSecretName.
+- name: appPort
+  type: string
+  default: ''
+
+- name: k8sNamespace
+  type: string
+  default: 'academico-prod'
+
+- name: k8sManifestDir
+  type: string
+  default: '$(Build.SourcesDirectory)/k8s/prod'
+
+- name: k8sRemoteManifestPath
+  type: string
+  default: '/tmp/academico-microservicio-k8s-manifests'
+
+- name: k8sDeployment
+  type: string
+  default: 'academico-microservicio'
+
+- name: k8sContainer
+  type: string
+  default: 'academico-microservicio'
+
+- name: imagePullSecretName
+  type: string
+  default: 'acr-pull-secret'
+
+- name: appSecretName
+  type: string
+  default: 'academico-microservicio-env'
+
+- name: rolloutTimeout
+  type: string
+  default: '5m'
+
+- name: legacyDockerCleanupEnabled
+  type: string
+  default: 'true'
+
+- name: postRolloutSmokeEnabled
+  type: string
+  default: 'true'
+
+- name: postRolloutSmokeBaseUrl
+  type: string
+  default: ''
+
+- name: postRolloutSmokeCommand
+  type: string
+  default: |
+    set -euo pipefail
+
+    base_url="${POST_ROLLOUT_SMOKE_BASE_URL%/}"
+    timeout_seconds="${POST_ROLLOUT_SMOKE_TIMEOUT_SECONDS:-5}"
+    readiness_service="${POST_ROLLOUT_SMOKE_HEALTH_SERVICE_NAME:-${K8S_DEPLOYMENT:-}-readiness}"
+
+    connect_call() {
+      local method="$1"
+      local payload="$2"
+      local headers=(-H "Content-Type: application/json")
+
+      if [ -z "$base_url" ]; then
+        echo "POST_ROLLOUT_SMOKE_BASE_URL is required."
+        exit 1
+      fi
+
+      curl --http2-prior-knowledge -fsS --connect-timeout "$timeout_seconds" --max-time "$timeout_seconds" "${headers[@]}" --data "$payload" "$base_url/$method"
+    }
+
+    if [ "$readiness_service" = "-readiness" ]; then
+      echo "K8S_DEPLOYMENT is required to derive the post-rollout readiness service name."
+      exit 1
+    fi
+
+    health_payload="$(jq -cn --arg service "$readiness_service" '{service: $service}')"
+    health_response="$(connect_call "grpc.health.v1.Health/Check" "$health_payload")"
+    health_status="$(jq -r '.status // ""' <<< "$health_response")"
+    if [ "$health_status" != "SERVING" ] && [ "$health_status" != "1" ]; then
+      echo "gRPC readiness health check did not return SERVING."
+      echo "Requested service: $readiness_service"
+      echo "Health status: $health_status"
+      exit 1
+    fi
+
+- name: postRolloutSmokeEnvVariableNames
+  type: string
+  default: ''
+
+- name: postRolloutSmokeRetries
+  type: string
+  default: '12'
+
+- name: postRolloutSmokeSleepSeconds
+  type: string
+  default: '5'
+
+- name: postRolloutSmokeTimeoutSeconds
+  type: string
+  default: '5'
 
 # Name of the .env key used by docker compose for the pushed image.
 # The compose file must reference this variable in its image property.
@@ -87,10 +200,11 @@ parameters:
   type: string
   default: 'SERVICE_IMAGE'
 
-# Space-separated list, in the order to write into the remote .env file.
-# PORT and the image variable are intentionally omitted: PORT is read from the
-# existing remote .env when present, or from servicePort on first deployment,
-# while the image variable is generated from the current Build.BuildId.
+# Space-separated list of application variables managed by the pipeline.
+# Development writes these keys into the remote .env file, and production writes
+# them into appSecretName. PORT and the image variable are intentionally omitted:
+# development reads PORT from the existing remote .env or servicePort, production
+# writes PORT from appPort, and the image variable is only generated for Compose.
 # The build also publishes latest for consumers that need the newest image tag.
 - name: envVariableNames
   type: string
@@ -98,10 +212,10 @@ parameters:
 
 # Space-separated list of .env keys that the generator should leave server-local
 # during automatic discovery. These keys are preserved from the existing remote
-# .env by the deploy script instead of being required as Azure DevOps variables.
+# development .env instead of being required as Azure DevOps variables.
 - name: preservedEnvVariableNames
   type: string
-  default: 'BASE_URL PASSWORD_RESET_TTL_MINUTES PASSWORD_RESET_THROTTLE_SECONDS'
+  default: 'PASSWORD_RESET_TTL_MINUTES PASSWORD_RESET_THROTTLE_SECONDS'
 
 # Values injected into the .env creation step. Use Azure DevOps secret variables
 # for sensitive values and plain literals for non-sensitive values.
@@ -126,7 +240,7 @@ parameters:
 
 - name: productionApprovalInstructions
   type: string
-  default: 'Approve to deploy this microservice to production.'
+  default: 'Approve to deploy this microservice to the production Kubernetes cluster.'
 
 trigger:
 - main
@@ -146,6 +260,156 @@ stages:
     pool:
       vmImage: ${{ parameters.vmImageName }}
     steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '20.x'
+      displayName: Use Node.js
+
+    - script: npm ci
+      displayName: Install dependencies
+
+    - script: |
+        set -euo pipefail
+        mkdir -p quality-gates
+
+        npm run test:cov -- --coverageReporters=json --watchAll=false
+        npm audit --json --audit-level=critical --package-lock-only > quality-gates/npm-audit.json || true
+        npx eslint "{src,apps,libs,test}/**/*.ts" --format json --no-error-on-unmatched-pattern > quality-gates/eslint.json || true
+
+        node <<'NODE'
+        const fs = require('node:fs');
+
+        function readJson(path, fallback) {
+          try {
+            return JSON.parse(fs.readFileSync(path, 'utf8'));
+          } catch {
+            return fallback;
+          }
+        }
+
+        function number(value) {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? parsed : -1;
+        }
+
+        function percent(metric) {
+          return metric.total > 0
+            ? Math.round((metric.covered / metric.total) * 10000) / 100
+            : -1;
+        }
+
+        function coverageFromIstanbulFinal(path) {
+          const report = readJson(path, {});
+          const totals = {
+            lines: { total: 0, covered: 0 },
+            statements: { total: 0, covered: 0 },
+            branches: { total: 0, covered: 0 },
+            functions: { total: 0, covered: 0 },
+          };
+
+          for (const file of Object.values(report)) {
+            const lineHits = new Map();
+
+            for (const [statementId, location] of Object.entries(file?.statementMap || {})) {
+              const line = Number(location?.start?.line);
+              if (!Number.isFinite(line)) {
+                continue;
+              }
+
+              const hits = Number(file?.s?.[statementId] || 0);
+              lineHits.set(line, Math.max(lineHits.get(line) || 0, hits));
+            }
+
+            totals.lines.total += lineHits.size;
+            totals.lines.covered += [...lineHits.values()].filter((hits) => hits > 0).length;
+
+            const statementHits = Object.values(file?.s || {}).map(Number);
+            totals.statements.total += statementHits.length;
+            totals.statements.covered += statementHits.filter((hits) => hits > 0).length;
+
+            const functionHits = Object.values(file?.f || {}).map(Number);
+            totals.functions.total += functionHits.length;
+            totals.functions.covered += functionHits.filter((hits) => hits > 0).length;
+
+            for (const branchHits of Object.values(file?.b || {})) {
+              for (const hits of branchHits || []) {
+                totals.branches.total += 1;
+                totals.branches.covered += Number(hits) > 0 ? 1 : 0;
+              }
+            }
+          }
+
+          return {
+            lines: percent(totals.lines),
+            statements: percent(totals.statements),
+            branches: percent(totals.branches),
+            functions: percent(totals.functions),
+          };
+        }
+
+        const coverage = coverageFromIstanbulFinal('coverage/coverage-final.json');
+        const audit = readJson('quality-gates/npm-audit.json', {});
+        const eslintResults = readJson('quality-gates/eslint.json', []);
+
+        const criticalVulnerabilities = Number.isFinite(Number(audit?.metadata?.vulnerabilities?.critical))
+          ? Number(audit.metadata.vulnerabilities.critical)
+          : audit?.vulnerabilities && typeof audit.vulnerabilities === 'object'
+            ? Object.values(audit.vulnerabilities).filter((vulnerability) => vulnerability?.severity === 'critical').length
+            : -1;
+
+        const criticalBugs = Array.isArray(eslintResults)
+          ? eslintResults.reduce((total, result) => {
+              const fatalErrorCount = Number(result?.fatalErrorCount);
+              if (Number.isFinite(fatalErrorCount)) {
+                return total + fatalErrorCount;
+              }
+
+              const fatalMessages = Array.isArray(result?.messages)
+                ? result.messages.filter((message) => message?.fatal === true && message?.severity === 2)
+                : [];
+              return total + fatalMessages.length;
+            }, 0)
+          : -1;
+
+        const summary = {
+          coverage: {
+            lines: number(coverage.lines),
+            statements: number(coverage.statements),
+            branches: number(coverage.branches),
+            functions: number(coverage.functions),
+          },
+          vulnerabilities: {
+            critical: criticalVulnerabilities,
+          },
+          bugs: {
+            critical: criticalBugs,
+          },
+          metadata: {
+            service: process.env.BUILD_REPOSITORY_NAME || '${{ parameters.containerName }}',
+            commit: process.env.BUILD_SOURCEVERSION || '',
+            buildId: process.env.BUILD_BUILDID || '',
+            generatedAt: new Date().toISOString(),
+          },
+        };
+
+        fs.writeFileSync('quality-gates/quality-gates-summary.json', `${JSON.stringify(summary, null, 2)}\n`);
+        console.log(JSON.stringify(summary, null, 2));
+        NODE
+      displayName: Generate quality gates summary
+      env:
+        ${{ each envVar in parameters.envVariables }}:
+          ${{ envVar.key }}: ${{ envVar.value }}
+
+    - script: test -f quality-gates/quality-gates-summary.json
+      displayName: Verify quality gates summary
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: $(Build.SourcesDirectory)/quality-gates/quality-gates-summary.json
+        ArtifactName: quality-gates-summary
+        publishLocation: Container
+      displayName: Publish quality-gates-summary.json
+
     - task: Docker@2
       displayName: Build and push an image to container registry
       inputs:
@@ -162,6 +426,8 @@ stages:
   displayName: Deploy to development
   dependsOn: Build
   condition: succeeded()
+  variables:
+  - group: ${{ parameters.developmentVariableGroup }}
   jobs:
   - job: DeployDevelopment
     displayName: Deploy Docker Compose on development server
@@ -370,7 +636,7 @@ stages:
       env:
         CONTAINER_REGISTRY: ${{ parameters.containerRegistry }}
         IMAGE_REPOSITORY: ${{ parameters.imageRepository }}
-        TAG: $(tag)
+        TAG: latest
         CONTAINER_NAME: ${{ parameters.containerName }}
         REMOTE_APP_PATH: ${{ parameters.devRemoteAppPath }}
         DEV_COMPOSE_FILE: ${{ parameters.devComposeFile }}
@@ -405,9 +671,11 @@ stages:
   displayName: Deploy to production
   dependsOn: ApproveProduction
   condition: succeeded()
+  variables:
+  - group: ${{ parameters.productionVariableGroup }}
   jobs:
   - job: DeployProduction
-    displayName: Deploy Docker Compose on production server
+    displayName: Deploy ${{ parameters.containerName }} to production Kubernetes
     pool:
       vmImage: ${{ parameters.vmImageName }}
     steps:
@@ -418,228 +686,34 @@ stages:
         containerRegistry: ${{ parameters.dockerRegistryServiceConnection }}
 
     - script: |
-        set -euo pipefail
-
-        require_env() {
-          local name="$1"
-          if [ -z "${!name:-}" ]; then
-            echo "Missing required environment variable: $name"
-            exit 1
-          fi
-        }
-
-        validate_env_name() {
-          local name="$1"
-          if [[ ! "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-            echo "Invalid environment variable name: $name"
-            exit 1
-          fi
-        }
-
-        require_env PROD_SSH_PRIVATE_KEY_B64
-        validate_env_name "$IMAGE_ENV_VARIABLE_NAME"
-
-        for name in $ENV_VARIABLE_NAMES; do
-          validate_env_name "$name"
-          require_env "$name"
-        done
-
-        IMAGE="${CONTAINER_REGISTRY}/${IMAGE_REPOSITORY}:${TAG}"
-        SSH_DIR="$(mktemp -d)"
-        ENV_FILE_LOCAL="$(mktemp)"
-
-        cleanup() {
-          rm -rf "$SSH_DIR" "$ENV_FILE_LOCAL"
-        }
-        trap cleanup EXIT
-
-        if [ ! -f "$COMPOSE_SOURCE_FILE" ]; then
-          echo "Missing compose source file: $COMPOSE_SOURCE_FILE"
-          exit 1
-        fi
-
-        mkdir -p "$SSH_DIR"
-        chmod 700 "$SSH_DIR"
-        printf '%s' "$PROD_SSH_PRIVATE_KEY_B64" | base64 -d > "$SSH_DIR/key"
-        chmod 600 "$SSH_DIR/key"
-        ssh-keyscan -T 10 "$PROD_SSH_HOST" > "$SSH_DIR/known_hosts"
-
-        SSH_OPTS=(
-          -i "$SSH_DIR/key"
-          -o IdentitiesOnly=yes
-          -o UserKnownHostsFile="$SSH_DIR/known_hosts"
-          -o StrictHostKeyChecking=yes
-        )
-        REMOTE="${PROD_SSH_USER}@${PROD_SSH_HOST}"
-
-        DOCKER_CONFIG_FILE="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
-        if [ ! -f "$DOCKER_CONFIG_FILE" ]; then
-          echo "Missing Docker config after ACR login: $DOCKER_CONFIG_FILE"
-          exit 1
-        fi
-
-        echo "Copying ACR Docker login to production server..."
-        ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p ~/.docker && umask 077 && cat > ~/.docker/config.json" < "$DOCKER_CONFIG_FILE"
-
-        echo "Reading production service port..."
-        SERVICE_PORT="$(
-          ssh "${SSH_OPTS[@]}" "$REMOTE" \
-            "set -eu; ENV_FILE='$REMOTE_APP_PATH/.env'; DEFAULT_SERVICE_PORT='$DEFAULT_SERVICE_PORT'; SERVICE_PORT=''; if [ -f \"\$ENV_FILE\" ]; then SERVICE_PORT=\$(sed -n 's/^PORT=//p' \"\$ENV_FILE\" | tail -n 1); fi; if [ -z \"\$SERVICE_PORT\" ]; then if [ -z \"\$DEFAULT_SERVICE_PORT\" ]; then echo \"No PORT found in \$ENV_FILE and servicePort was not configured.\" >&2; exit 1; fi; echo \"No PORT found in \$ENV_FILE. Using configured servicePort \$DEFAULT_SERVICE_PORT.\" >&2; SERVICE_PORT=\"\$DEFAULT_SERVICE_PORT\"; fi; printf '%s\n' \"\$SERVICE_PORT\""
-        )"
-
-        if [[ ! "$SERVICE_PORT" =~ ^[0-9]+$ ]]; then
-          echo "Invalid PORT value resolved for production: $SERVICE_PORT"
-          exit 1
-        fi
-
-        umask 077
-        {
-          printf '%s=%s\n' "$IMAGE_ENV_VARIABLE_NAME" "$IMAGE"
-          printf 'PORT=%s\n' "$SERVICE_PORT"
-          for name in $ENV_VARIABLE_NAMES; do
-            printf '%s=%s\n' "$name" "${!name}"
-          done
-        } > "$ENV_FILE_LOCAL"
-
-        echo "Updating production .env and compose file..."
-        ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p '$REMOTE_APP_PATH' && umask 077 && cat > '$REMOTE_APP_PATH/.env.pipeline'" < "$ENV_FILE_LOCAL"
-        ssh "${SSH_OPTS[@]}" "$REMOTE" "REMOTE_APP_PATH='$REMOTE_APP_PATH' bash -se" << 'REMOTE_ENV_MERGE'
-        set -euo pipefail
-
-        ENV_FILE="$REMOTE_APP_PATH/.env"
-        GENERATED_FILE="$REMOTE_APP_PATH/.env.pipeline"
-        MERGED_FILE="$REMOTE_APP_PATH/.env.merged"
-
-        if [ -f "$ENV_FILE" ]; then
-          awk '
-            FNR == NR {
-              if ($0 ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
-                split($0, parts, "=")
-                managed[parts[1]] = 1
-              }
-              generated[++generated_count] = $0
-              next
-            }
-            {
-              if ($0 ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
-                split($0, parts, "=")
-                if (parts[1] in managed) {
-                  next
-                }
-              }
-              print
-            }
-            END {
-              for (i = 1; i <= generated_count; i++) {
-                print generated[i]
-              }
-            }
-          ' "$GENERATED_FILE" "$ENV_FILE" > "$MERGED_FILE"
-        else
-          cp "$GENERATED_FILE" "$MERGED_FILE"
-        fi
-
-        mv "$MERGED_FILE" "$ENV_FILE"
-        rm -f "$GENERATED_FILE"
-        chmod 600 "$ENV_FILE"
-        REMOTE_ENV_MERGE
-        ssh "${SSH_OPTS[@]}" "$REMOTE" "cat > '$REMOTE_APP_PATH/$PROD_COMPOSE_FILE'" < "$COMPOSE_SOURCE_FILE"
-
-        echo "Deploying with Docker Compose..."
-        ssh "${SSH_OPTS[@]}" "$REMOTE" \
-          "REMOTE_APP_PATH='$REMOTE_APP_PATH' PROD_COMPOSE_FILE='$PROD_COMPOSE_FILE' CONTAINER_NAME='$CONTAINER_NAME' bash -se" << 'REMOTE_SCRIPT'
-        set -euo pipefail
-
-        cd "$REMOTE_APP_PATH"
-
-        container_is_running() {
-          docker ps --filter "name=^/${CONTAINER_NAME}$" --filter "status=running" --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"
-        }
-
-        show_port_usage() {
-          local service_port=""
-          if [ -f .env ]; then
-            service_port="$(sed -n 's/^PORT=//p' .env | tail -n 1 || true)"
-          fi
-
-          if [ -n "$service_port" ]; then
-            echo "Containers publishing port $service_port:"
-            docker ps --format 'table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Ports}}' | awk -v port="$service_port" 'NR == 1 || index($0, ":" port "->") > 0'
-          fi
-        }
-
-        ensure_docker_network() {
-          local network_name="$1"
-          if docker network inspect "$network_name" >/dev/null 2>&1; then
-            return
-          fi
-
-          echo "Creating Docker network $network_name..."
-          docker network create "$network_name" >/dev/null
-        }
-
-        start_compose() {
-          local compose_file="$1"
-          if ! docker compose -f "$compose_file" up -d --remove-orphans; then
-            echo "Docker Compose reported a startup error. Waiting before checking container state..."
-            sleep 8
-            if container_is_running; then
-              echo "Container $CONTAINER_NAME is running after the startup error; continuing."
-              return 0
-            fi
-
-            show_port_usage
-            return 1
-          fi
-        }
-
-        if [ -f docker-compose.yml ]; then
-          echo "Stopping current compose project..."
-          docker compose -f docker-compose.yml down --remove-orphans || true
-        fi
-
-        echo "Stopping previous pipeline compose project..."
-        docker compose -f "$PROD_COMPOSE_FILE" down --remove-orphans || true
-
-        ensure_docker_network academico-backend
-
-        echo "Pulling production image..."
-        docker compose -f "$PROD_COMPOSE_FILE" pull
-
-        echo "Starting production compose project..."
-        start_compose "$PROD_COMPOSE_FILE"
-
-        echo "Verifying container is running..."
-        sleep 8
-        if ! container_is_running; then
-          echo "Container $CONTAINER_NAME did not stay running."
-          show_port_usage
-          docker ps -a --filter "name=^/${CONTAINER_NAME}$"
-          docker logs --tail 200 "$CONTAINER_NAME" || true
-          exit 1
-        fi
-
-        docker compose -f "$PROD_COMPOSE_FILE" ps
-
-        echo "Cleaning up dangling images..."
-        docker image prune -f
-
-        echo "Production deployment completed."
-        REMOTE_SCRIPT
-      displayName: Deploy to production with Docker Compose
+        bash "$(Build.SourcesDirectory)/scripts/deploy_k8s_production.sh"
+      displayName: Deploy to production Kubernetes
       env:
         CONTAINER_REGISTRY: ${{ parameters.containerRegistry }}
         IMAGE_REPOSITORY: ${{ parameters.imageRepository }}
         TAG: $(tag)
-        CONTAINER_NAME: ${{ parameters.containerName }}
-        PROD_SSH_HOST: ${{ parameters.prodSshHost }}
-        PROD_SSH_USER: ${{ parameters.prodSshUser }}
-        REMOTE_APP_PATH: ${{ parameters.prodRemoteAppPath }}
-        PROD_COMPOSE_FILE: ${{ parameters.prodComposeFile }}
-        COMPOSE_SOURCE_FILE: $(Build.SourcesDirectory)/${{ parameters.prodComposeFile }}
-        IMAGE_ENV_VARIABLE_NAME: ${{ parameters.imageEnvVariableName }}
+        K8S_SSH_HOST: ${{ parameters.prodSshHost }}
+        K8S_SSH_USER: ${{ parameters.prodSshUser }}
+        K8S_SSH_PRIVATE_KEY_B64: ${{ parameters.prodSshPrivateKeyB64 }}
+        K8S_NAMESPACE: ${{ parameters.k8sNamespace }}
+        K8S_MANIFEST_DIR: ${{ parameters.k8sManifestDir }}
+        K8S_REMOTE_MANIFEST_PATH: ${{ parameters.k8sRemoteManifestPath }}
+        K8S_DEPLOYMENT: ${{ parameters.k8sDeployment }}
+        K8S_CONTAINER: ${{ parameters.k8sContainer }}
+        IMAGE_PULL_SECRET_NAME: ${{ parameters.imagePullSecretName }}
+        APP_SECRET_NAME: ${{ parameters.appSecretName }}
+        ROLLOUT_TIMEOUT: ${{ parameters.rolloutTimeout }}
+        LEGACY_DOCKER_CLEANUP_ENABLED: '${{ parameters.legacyDockerCleanupEnabled }}'
+        LOCAL_PORT_FORWARD_ENABLED: 'true'
+        LOCAL_PORT_FORWARD_ADDRESS: ''
+        APP_PORT: '${{ parameters.appPort }}'
+        POST_ROLLOUT_SMOKE_ENABLED: '${{ parameters.postRolloutSmokeEnabled }}'
+        POST_ROLLOUT_SMOKE_BASE_URL: '${{ parameters.postRolloutSmokeBaseUrl }}'
+        POST_ROLLOUT_SMOKE_COMMAND: ${{ parameters.postRolloutSmokeCommand }}
+        POST_ROLLOUT_SMOKE_ENV_VARIABLE_NAMES: '${{ parameters.postRolloutSmokeEnvVariableNames }}'
+        POST_ROLLOUT_SMOKE_RETRIES: '${{ parameters.postRolloutSmokeRetries }}'
+        POST_ROLLOUT_SMOKE_SLEEP_SECONDS: '${{ parameters.postRolloutSmokeSleepSeconds }}'
+        POST_ROLLOUT_SMOKE_TIMEOUT_SECONDS: '${{ parameters.postRolloutSmokeTimeoutSeconds }}'
         ENV_VARIABLE_NAMES: ${{ parameters.envVariableNames }}
-        DEFAULT_SERVICE_PORT: '${{ parameters.servicePort }}'
-        PROD_SSH_PRIVATE_KEY_B64: $(PROD_SSH_PRIVATE_KEY_B64)
         ${{ each envVar in parameters.envVariables }}:
           ${{ envVar.key }}: ${{ envVar.value }}
